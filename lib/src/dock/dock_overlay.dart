@@ -43,7 +43,9 @@ class DockOverlay extends ConsumerWidget {
         return Stack(
           key: stackKey,
           children: [
-            // 스냅 그리드 + 앵커 구역 (드래그/리사이즈 중에만)
+            // 뷰어 컨테이너 (최하단)
+            viewerBuilder(viewerSize),
+            // 스냅 그리드 + 앵커 구역 (드래그/리사이즈 중 뷰어 위에 오버레이)
             if (dockState.isInteracting)
               () {
                 final g = _getActiveGroup(dockState);
@@ -60,8 +62,6 @@ class DockOverlay extends ConsumerWidget {
                       : null,
                 );
               }(),
-            // 뷰어 컨테이너 (패널 뒤)
-            viewerBuilder(viewerSize),
             for (final group in sortedGroups)
               DockGroupWidget(
                 key: ValueKey(group.id),
