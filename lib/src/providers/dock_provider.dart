@@ -393,17 +393,18 @@ class DockNotifier extends Notifier<DockState> {
     sizes[largestIdx] = (sizes[largestIdx] + delta)
         .clamp(_config.groupMinHeight, double.infinity);
 
-    // 새 ratios 계산
-    final totalSize = sizes.fold(0.0, (a, b) => a + b);
-    final newRatios = [
-      for (final s in sizes) s / totalSize,
-    ];
-
     return DockSplit(
       axis: node.axis,
       children: adjustedChildren,
-      ratios: newRatios,
+      ratios: _ratiosFromSizes(sizes),
     );
+  }
+
+  /// 절대 크기 배열을 정규화된 비율 배열로 변환.
+  static List<double> _ratiosFromSizes(List<double> sizes) {
+    final total = sizes.fold(0.0, (a, b) => a + b);
+    if (total <= 0) return List.filled(sizes.length, 1.0 / sizes.length);
+    return [for (final s in sizes) s / total];
   }
 
   // ── 드래그 ──
@@ -1535,21 +1536,13 @@ class DockNotifier extends Notifier<DockState> {
 
     if (nodePath.isEmpty) {
       // 루트 노드가 직접 Tabbed인 경우
-      final double newHeight;
       final DockNode newNode;
+      final double newHeight;
       if (collapsing) {
-        newNode = DockTabbed(
-          tabIds: tabbed.tabIds,
-          activeIndex: tabbed.activeIndex,
-          collapsed: true,
-          expandedHeight: groupRect.height,
-        );
+        newNode = tabbed.copyWith(collapsed: true, expandedHeight: groupRect.height);
         newHeight = collapsedH;
       } else {
-        newNode = DockTabbed(
-          tabIds: tabbed.tabIds,
-          activeIndex: tabbed.activeIndex,
-        );
+        newNode = tabbed.copyWith(collapsed: false, clearExpandedHeight: true);
         newHeight = tabbed.expandedHeight ?? groupRect.height;
       }
       final updated = group
@@ -1584,20 +1577,9 @@ class DockNotifier extends Notifier<DockState> {
       nodePixelH = groupRect.height;
     }
 
-    final DockTabbed newTabbed;
-    if (collapsing) {
-      newTabbed = DockTabbed(
-        tabIds: tabbed.tabIds,
-        activeIndex: tabbed.activeIndex,
-        collapsed: true,
-        expandedHeight: nodePixelH,
-      );
-    } else {
-      newTabbed = DockTabbed(
-        tabIds: tabbed.tabIds,
-        activeIndex: tabbed.activeIndex,
-      );
-    }
+    final newTabbed = collapsing
+        ? tabbed.copyWith(collapsed: true, expandedHeight: nodePixelH)
+        : tabbed.copyWith(collapsed: false, clearExpandedHeight: true);
 
     var newRoot = replaceNodeAt(group.root, nodePath, newTabbed);
 
@@ -1618,8 +1600,7 @@ class DockNotifier extends Notifier<DockState> {
         }
       }
       final newGroupH = sizes.fold(0.0, (a, b) => a + b);
-      final totalSize = sizes.fold(0.0, (a, b) => a + b);
-      final newRatios = [for (final s in sizes) s / totalSize];
+      final newRatios = _ratiosFromSizes(sizes);
       final newSplit = DockSplit(
         axis: parent.axis,
         children: [
@@ -1671,18 +1652,17 @@ class DockNotifier extends Notifier<DockState> {
   ) {
     final groupH = vs.height;
 
+    // 엣지 패널 접기 — 노드만 교체하는 공통 헬퍼
+    DockTabbed makeCollapsed(double? storedH) => collapsing
+        ? tabbed.copyWith(collapsed: true, expandedHeight: storedH)
+        : tabbed.copyWith(collapsed: false, clearExpandedHeight: true);
+
     if (nodePath.isEmpty) {
       // 엣지 패널의 루트 노드 — 접기만 표시 (높이 변동 없음)
-      final newNode = DockTabbed(
-        tabIds: tabbed.tabIds,
-        activeIndex: tabbed.activeIndex,
-        collapsed: collapsing,
-        expandedHeight: collapsing ? groupH : null,
-      );
       _setState(DockState(
         groups: [
           for (final g in state.groups)
-            if (g.id == group.id) g.copyWith(root: newNode) else g,
+            if (g.id == group.id) g.copyWith(root: makeCollapsed(groupH)) else g,
         ],
         viewerSize: vs,
       ));
@@ -1696,13 +1676,7 @@ class DockNotifier extends Notifier<DockState> {
 
     if (parent is! DockSplit || parent.axis != SplitAxis.vertical) {
       // 가로 Split: 노드만 교체
-      final newTabbed = DockTabbed(
-        tabIds: tabbed.tabIds,
-        activeIndex: tabbed.activeIndex,
-        collapsed: collapsing,
-        expandedHeight: collapsing ? groupH : null,
-      );
-      final newRoot = replaceNodeAt(group.root, nodePath, newTabbed);
+      final newRoot = replaceNodeAt(group.root, nodePath, makeCollapsed(groupH));
       _setState(DockState(
         groups: [
           for (final g in state.groups)
@@ -1715,23 +1689,8 @@ class DockNotifier extends Notifier<DockState> {
 
     // 세로 Split: 가장 큰 패널이 여유 공간 흡수
     final nodePixelH = groupH * parent.ratios[childIndex];
-    final double targetH;
-    final double? storedExpandedH;
-
-    if (collapsing) {
-      targetH = collapsedH;
-      storedExpandedH = nodePixelH;
-    } else {
-      targetH = tabbed.expandedHeight ?? nodePixelH;
-      storedExpandedH = null;
-    }
-
-    final newTabbed = DockTabbed(
-      tabIds: tabbed.tabIds,
-      activeIndex: tabbed.activeIndex,
-      collapsed: collapsing,
-      expandedHeight: storedExpandedH,
-    );
+    final targetH = collapsing ? collapsedH : (tabbed.expandedHeight ?? nodePixelH);
+    final newTabbed = makeCollapsed(nodePixelH);
 
     // 절대 크기 계산 → 대상 변경 → 가장 큰 비접힌 패널이 delta 흡수
     final sizes = [
@@ -1758,8 +1717,7 @@ class DockNotifier extends Notifier<DockState> {
     sizes[largestIdx] = (sizes[largestIdx] + delta)
         .clamp(_config.groupMinHeight, double.infinity);
 
-    final totalSize = sizes.fold(0.0, (a, b) => a + b);
-    final newRatios = [for (final s in sizes) s / totalSize];
+    final newRatios = _ratiosFromSizes(sizes);
 
     final newSplit = DockSplit(
       axis: parent.axis,

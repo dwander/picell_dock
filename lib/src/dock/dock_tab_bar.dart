@@ -389,20 +389,6 @@ class _DraggableTabBarState extends ConsumerState<_DraggableTabBar>
     );
   }
 
-  /// 엣지 패널에서 펼쳐진 패널이 자신뿐인지 확인.
-  bool _isLastExpandedInEdge(WidgetRef ref, DockDragContext dc) {
-    final group = ref.read(dockProvider).groups
-        .where((g) => g.id == dc.groupId).firstOrNull;
-    if (group == null) return false;
-    final root = group.root;
-    if (root is! DockSplit) return false;
-    int expandedCount = 0;
-    for (final child in root.children) {
-      if (!child.isCollapsed) expandedCount++;
-    }
-    return expandedCount <= 1;
-  }
-
   @override
   Widget build(BuildContext context) {
     final dc = widget.dragContext;
@@ -417,6 +403,15 @@ class _DraggableTabBarState extends ConsumerState<_DraggableTabBar>
         : ref.watch(dockProvider.select(
             (s) => s.groups.where((g) => g.id == dc.groupId).firstOrNull?.dockedEdge,
           ));
+    // 엣지 패널에서 펼쳐진 패널이 자신뿐이면 접기 불가
+    final isLastExpanded = dc == null || dockedEdge == null
+        ? false
+        : ref.watch(dockProvider.select((s) {
+            final root = s.groups
+                .where((g) => g.id == dc.groupId).firstOrNull?.root;
+            if (root is! DockSplit) return false;
+            return root.children.where((c) => !c.isCollapsed).length <= 1;
+          }));
     // 패널별 오버레이 버튼 레이아웃
     final activePanelId = widget.tabIds[widget.activeIndex];
     final panelLayout = dockTheme.panelDelegate.buildOverlayLayout
@@ -528,7 +523,7 @@ class _DraggableTabBarState extends ConsumerState<_DraggableTabBar>
                             // - 엣지 패널에서 펼쳐진 패널이 자신뿐 (마지막 1개는 접기 불가)
                             child: dc == null ||
                                     (dockedEdge != null && widget.nodePath.isEmpty) ||
-                                    (dockedEdge != null && !isCollapsed && _isLastExpandedInEdge(ref, dc))
+                                    (dockedEdge != null && !isCollapsed && isLastExpanded)
                                 ? const SizedBox.shrink()
                                 : Padding(
                                     padding: const EdgeInsets.only(right: 4),
