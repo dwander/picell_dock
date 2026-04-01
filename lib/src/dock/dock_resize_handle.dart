@@ -19,8 +19,8 @@ enum ResizeEdge {
 }
 
 /// 리사이즈 핸들의 히트 영역 크기.
-const double _handleThickness = 6.0;
-const double _cornerSize = 12.0;
+const double _handleThickness = 3.0;
+const double _cornerSize = 8.0;
 
 /// DockGroup 테두리에 배치되는 리사이즈 핸들.
 ///
