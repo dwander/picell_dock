@@ -431,13 +431,17 @@ class DockNotifier extends Notifier<DockState> {
       );
     }
 
-    // 세로 Split: 각 자식의 이전 절대 크기 계산
+    // 세로 Split: 세퍼레이터 제외한 콘텐츠 높이로 계산
     final collapsedH = _collapsedNodeHeight;
+    final separatorSpace = (node.children.length - 1) * _config.splitSeparatorThickness;
+    final oldContentH = oldHeight - separatorSpace;
+    final newContentH = newHeight - separatorSpace;
+
     final sizes = <double>[];
     for (int i = 0; i < node.ratios.length; i++) {
       sizes.add(adjustedChildren[i].isCollapsed
           ? collapsedH
-          : node.ratios[i] * oldHeight);
+          : node.ratios[i] * oldContentH);
     }
 
     // 가장 큰 비접힌 자식을 찾아 변동분 흡수
@@ -455,8 +459,8 @@ class DockNotifier extends Notifier<DockState> {
     for (int i = 0; i < sizes.length; i++) {
       if (i != largestIdx) fixedTotal += sizes[i];
     }
-    // 가장 큰 자식이 남은 공간 전부 차지
-    sizes[largestIdx] = (newHeight - fixedTotal)
+    // 가장 큰 자식이 남은 콘텐츠 공간 전부 차지
+    sizes[largestIdx] = (newContentH - fixedTotal)
         .clamp(_config.groupMinHeight, double.infinity);
 
     return DockSplit(
@@ -1443,24 +1447,51 @@ class DockNotifier extends Notifier<DockState> {
         : SplitAxis.vertical;
     final sourceFirst = (edge == DockEdge.left || edge == DockEdge.top);
 
-    final children = sourceFirst
-        ? [source.root, target.root]
-        : [target.root, source.root];
+    // 타겟 root가 같은 축의 Split이면 플랫하게 자식 추가
+    final DockSplit mergedSplit;
+    if (target.root is DockSplit && (target.root as DockSplit).axis == axis) {
+      final existing = target.root as DockSplit;
+      final srcSize = axis == SplitAxis.horizontal
+          ? srcRect.width : srcRect.height;
+      final tgtSize = axis == SplitAxis.horizontal
+          ? tgtRect.width : tgtRect.height;
+      // 기존 자식 비율을 tgtSize 기준으로 유지, 새 패널 비율 추가
+      final totalSize = tgtSize + srcSize;
+      final srcRatio = srcSize / totalSize;
+      final scale = tgtSize / totalSize;
+      final scaledRatios = [for (final r in existing.ratios) r * scale];
+      mergedSplit = DockSplit(
+        axis: axis,
+        children: sourceFirst
+            ? [source.root, ...existing.children]
+            : [...existing.children, source.root],
+        ratios: sourceFirst
+            ? [srcRatio, ...scaledRatios]
+            : [...scaledRatios, srcRatio],
+      );
+    } else {
+      final srcSize = axis == SplitAxis.horizontal
+          ? srcRect.width : srcRect.height;
+      final tgtSize = axis == SplitAxis.horizontal
+          ? tgtRect.width : tgtRect.height;
+      final totalSize = srcSize + tgtSize;
+      final srcRatio = srcSize / totalSize;
+      mergedSplit = DockSplit(
+        axis: axis,
+        children: sourceFirst
+            ? [source.root, target.root]
+            : [target.root, source.root],
+        ratios: sourceFirst
+            ? [srcRatio, 1.0 - srcRatio]
+            : [1.0 - srcRatio, srcRatio],
+      );
+    }
 
     // 엣지 패널 타겟: 위치/크기 유지, dockedEdge 보존
     if (target.dockedEdge != null) {
-      final totalSize = axis == SplitAxis.horizontal
-          ? tgtRect.width
-          : tgtRect.height;
-      final srcSize = axis == SplitAxis.horizontal
-          ? srcRect.width
-          : srcRect.height;
-      final ratio = (srcSize / totalSize).clamp(0.1, 0.9);
-      final ratios = sourceFirst ? [ratio, 1.0 - ratio] : [1.0 - ratio, ratio];
-
       final mergedGroup = _clampToViewport(
         target.copyWith(
-          root: DockSplit(axis: axis, children: children, ratios: ratios),
+          root: mergedSplit,
           headerless: false,
         ),
         vs,
@@ -1482,28 +1513,23 @@ class DockNotifier extends Notifier<DockState> {
     final double mergedTop;
     final double mergedWidth;
     final double mergedHeight;
-    final double ratio;
 
     if (axis == SplitAxis.horizontal) {
       mergedWidth = srcRect.width + tgtRect.width;
       mergedHeight = math.max(srcRect.height, tgtRect.height);
       mergedTop = math.min(srcRect.top, tgtRect.top);
       mergedLeft = sourceFirst ? tgtRect.left - srcRect.width : tgtRect.left;
-      ratio = srcRect.width / mergedWidth;
     } else {
       mergedHeight = srcRect.height + tgtRect.height;
       mergedWidth = math.max(srcRect.width, tgtRect.width);
       mergedLeft = math.min(srcRect.left, tgtRect.left);
       mergedTop = sourceFirst ? tgtRect.top - srcRect.height : tgtRect.top;
-      ratio = srcRect.height / mergedHeight;
     }
-
-    final ratios = sourceFirst ? [ratio, 1.0 - ratio] : [1.0 - ratio, ratio];
 
     final mergedGroup = _clampToViewport(
       target
           .copyWith(
-            root: DockSplit(axis: axis, children: children, ratios: ratios),
+            root: mergedSplit,
             width: mergedWidth,
             height: mergedHeight,
             headerless: false,
@@ -1656,10 +1682,11 @@ class DockNotifier extends Notifier<DockState> {
     final parent = getNodeAt(group.root, parentPath);
     final childIndex = nodePath.last;
 
-    // 노드의 현재 픽셀 높이 계산
+    // 노드의 현재 픽셀 높이 계산 (세퍼레이터 공간 제외)
     final double nodePixelH;
     if (parent is DockSplit && parent.axis == SplitAxis.vertical) {
-      nodePixelH = groupRect.height * parent.ratios[childIndex];
+      final sepSpace = (parent.children.length - 1) * _config.splitSeparatorThickness;
+      nodePixelH = (groupRect.height - sepSpace) * parent.ratios[childIndex];
     } else {
       nodePixelH = groupRect.height;
     }
@@ -1672,21 +1699,24 @@ class DockNotifier extends Notifier<DockState> {
 
     // 세로 Split 안이면 ratios 재계산 + 그룹 높이 변동
     if (parent is DockSplit && parent.axis == SplitAxis.vertical) {
+      // 세퍼레이터는 Flex 레이아웃에서 고정 공간을 차지하므로 별도 계산
+      final separatorSpace = (parent.children.length - 1) * _config.splitSeparatorThickness;
+      final contentH = groupRect.height - separatorSpace;
       // 자식별 절대 높이 계산: 접힌 형제는 collapsedH 고정, 나머지는 현재 크기 유지
       final sizes = <double>[];
       for (int i = 0; i < parent.ratios.length; i++) {
         if (i == childIndex) {
-          sizes.add(collapsing ? collapsedH : (tabbed.expandedHeight ?? nodePixelH));
+          sizes.add(collapsing ? collapsedH : (tabbed.expandedHeight ?? contentH * parent.ratios[i]));
         } else {
           final sibling = parent.children[i];
           if (sibling.isCollapsed) {
             sizes.add(collapsedH);
           } else {
-            sizes.add(groupRect.height * parent.ratios[i]);
+            sizes.add(contentH * parent.ratios[i]);
           }
         }
       }
-      final newGroupH = sizes.fold(0.0, (a, b) => a + b);
+      final newGroupH = sizes.fold(0.0, (a, b) => a + b) + separatorSpace;
       final newRatios = _ratiosFromSizes(sizes);
       final newSplit = DockSplit(
         axis: parent.axis,

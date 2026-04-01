@@ -323,8 +323,8 @@ class _DraggableSplitSeparatorState
                     );
               },
         child: SizedBox(
-          width: isHorizontal ? 5 : null,
-          height: isHorizontal ? null : 5,
+          width: isHorizontal ? DockTheme.of(context).config.splitSeparatorThickness : null,
+          height: isHorizontal ? null : DockTheme.of(context).config.splitSeparatorThickness,
           child: Center(
             child: SizedBox(
               width: isHorizontal ? 1 : double.infinity,

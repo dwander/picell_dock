@@ -403,14 +403,20 @@ class _DraggableTabBarState extends ConsumerState<_DraggableTabBar>
         : ref.watch(dockProvider.select(
             (s) => s.groups.where((g) => g.id == dc.groupId).firstOrNull?.dockedEdge,
           ));
-    // 엣지 패널에서 펼쳐진 패널이 자신뿐이면 접기 불가
-    final isLastExpanded = dc == null || dockedEdge == null
+    // 그룹 전체에서 펼쳐진 패널이 자신뿐이면 접기 불가 (엣지/플로팅 공통)
+    final isLastExpanded = dc == null || widget.nodePath.isEmpty
         ? false
         : ref.watch(dockProvider.select((s) {
             final root = s.groups
                 .where((g) => g.id == dc.groupId).firstOrNull?.root;
             if (root is! DockSplit) return false;
-            return root.children.where((c) => !c.isCollapsed).length <= 1;
+            int countExpanded(DockNode node) => switch (node) {
+              DockLeaf() => 1,
+              DockTabbed(:final collapsed) => collapsed ? 0 : 1,
+              DockSplit(:final children) =>
+                children.fold(0, (sum, c) => sum + countExpanded(c)),
+            };
+            return countExpanded(root) <= 1;
           }));
     // 패널별 오버레이 버튼 레이아웃
     final activePanelId = widget.tabIds[widget.activeIndex];
@@ -519,11 +525,11 @@ class _DraggableTabBarState extends ConsumerState<_DraggableTabBar>
                           child: Align(
                             alignment: Alignment.centerRight,
                             // 접기 버튼 숨김 조건:
-                            // - 엣지 패널의 루트 노드(스플릿 아닌 단일 패널)
-                            // - 엣지 패널에서 펼쳐진 패널이 자신뿐 (마지막 1개는 접기 불가)
+                            // - 루트 노드(스플릿 아닌 단일 패널)에서는 엣지만 숨김
+                            // - 펼쳐진 패널이 자신뿐이면 접기 불가 (엣지/플로팅 공통)
                             child: dc == null ||
                                     (dockedEdge != null && widget.nodePath.isEmpty) ||
-                                    (dockedEdge != null && !isCollapsed && isLastExpanded)
+                                    (!isCollapsed && isLastExpanded)
                                 ? const SizedBox.shrink()
                                 : Padding(
                                     padding: const EdgeInsets.only(right: 4),
