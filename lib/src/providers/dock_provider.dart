@@ -1545,7 +1545,7 @@ class DockNotifier extends Notifier<DockState> {
         newNode = tabbed.copyWith(collapsed: false, clearExpandedHeight: true);
         newHeight = tabbed.expandedHeight ?? groupRect.height;
       }
-      final updated = group
+      var updated = group
           .copyWith(root: newNode, height: newHeight)
           .updateFromAbsolute(
             groupRect.left,
@@ -1553,6 +1553,8 @@ class DockNotifier extends Notifier<DockState> {
             vs.width,
             vs.height,
           );
+      // 펼친 후 뷰포트 밖으로 벗어나��� 안쪽으로 클램핑
+      if (!collapsing) updated = _clampToViewport(updated, vs);
       _setState(DockState(
         groups: [
           for (final g in state.groups)
@@ -1611,7 +1613,7 @@ class DockNotifier extends Notifier<DockState> {
       );
       newRoot = replaceNodeAt(group.root, parentPath, newSplit);
 
-      final updated = group
+      var updated = group
           .copyWith(root: newRoot, height: newGroupH)
           .updateFromAbsolute(
             groupRect.left,
@@ -1619,6 +1621,7 @@ class DockNotifier extends Notifier<DockState> {
             vs.width,
             vs.height,
           );
+      if (!collapsing) updated = _clampToViewport(updated, vs);
       _setState(DockState(
         groups: [
           for (final g in state.groups)
