@@ -454,7 +454,7 @@ class _DraggableTabBarState extends ConsumerState<_DraggableTabBar>
                     for (int i = 0; i < widget.tabIds.length; i++) ...[
                       GestureDetector(
                         key: _keyForTab(i),
-                        onTap: i == widget.activeIndex || dc == null
+                        onTap: i == widget.activeIndex || dc == null || isCollapsed
                             ? null
                             : () {
                                 ref
