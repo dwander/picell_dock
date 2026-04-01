@@ -400,6 +400,72 @@ class DockNotifier extends Notifier<DockState> {
     );
   }
 
+  /// 세로 Split 리사이즈 시 비율 보정.
+  ///
+  /// 접힌 자식은 [collapsedH] 고정, 비접힌 자식 중 가장 큰 것만 유동,
+  /// 나머지는 이전 픽셀 크기를 유지한다.
+  /// [_adjustEdgeSplitRatios]와 동일한 "가장 큰 패널이 변동분 흡수" 패턴.
+  DockNode _fixSplitRatiosForResize(
+    DockNode node,
+    double oldHeight,
+    double newHeight,
+  ) {
+    if (node is! DockSplit) return node;
+    if (oldHeight <= 0 || newHeight <= 0) return node;
+
+    // 재귀: 하위 Split도 처리
+    final adjustedChildren = [
+      for (int i = 0; i < node.children.length; i++)
+        _fixSplitRatiosForResize(
+          node.children[i],
+          oldHeight * node.ratios[i],
+          newHeight * node.ratios[i],
+        ),
+    ];
+
+    if (node.axis == SplitAxis.horizontal) {
+      return DockSplit(
+        axis: node.axis,
+        children: adjustedChildren,
+        ratios: node.ratios,
+      );
+    }
+
+    // 세로 Split: 각 자식의 이전 절대 크기 계산
+    final collapsedH = _collapsedNodeHeight;
+    final sizes = <double>[];
+    for (int i = 0; i < node.ratios.length; i++) {
+      sizes.add(adjustedChildren[i].isCollapsed
+          ? collapsedH
+          : node.ratios[i] * oldHeight);
+    }
+
+    // 가장 큰 비접힌 자식을 찾아 변동분 흡수
+    int largestIdx = -1;
+    for (int i = 0; i < sizes.length; i++) {
+      if (!adjustedChildren[i].isCollapsed &&
+          (largestIdx == -1 || sizes[i] > sizes[largestIdx])) {
+        largestIdx = i;
+      }
+    }
+    if (largestIdx == -1) largestIdx = 0;
+
+    // 고정 자식 합계 (가장 큰 자식 제외)
+    double fixedTotal = 0;
+    for (int i = 0; i < sizes.length; i++) {
+      if (i != largestIdx) fixedTotal += sizes[i];
+    }
+    // 가장 큰 자식이 남은 공간 전부 차지
+    sizes[largestIdx] = (newHeight - fixedTotal)
+        .clamp(_config.groupMinHeight, double.infinity);
+
+    return DockSplit(
+      axis: node.axis,
+      children: adjustedChildren,
+      ratios: _ratiosFromSizes(sizes),
+    );
+  }
+
   /// 절대 크기 배열을 정규화된 비율 배열로 변환.
   static List<double> _ratiosFromSizes(List<double> sizes) {
     final total = sizes.fold(0.0, (a, b) => a + b);
@@ -747,6 +813,9 @@ class DockNotifier extends Notifier<DockState> {
   }
 
   /// 리사이즈 중: Left/Top 앵커로 임시 저장 (앵커 재계산 안함).
+  ///
+  /// 높이 변경 시 접힌 노드는 고정 크기를 유지하고
+  /// 나머지 자식에게 변동분을 분배한다.
   void resizeGroup(
     String groupId, {
     required double left,
@@ -754,12 +823,21 @@ class DockNotifier extends Notifier<DockState> {
     required double width,
     required double height,
   }) {
+    final group = _findGroup(state.groups, groupId);
+    // 높이가 변경되면 가장 큰 패널만 유동 리사이즈, 나머지 고정
+    final DockNode root;
+    if (group != null && (group.height - height).abs() > 0.5) {
+      root = _fixSplitRatiosForResize(group.root, group.height, height);
+    } else {
+      root = group?.root ?? const DockLeaf(panelId: '');
+    }
     _setState(
       DockState(
         groups: [
           for (final g in state.groups)
             if (g.id == groupId)
               g.copyWith(
+                root: root,
                 anchorX: AnchorX.left,
                 anchorY: AnchorY.top,
                 offsetX: left,
@@ -776,7 +854,7 @@ class DockNotifier extends Notifier<DockState> {
     );
   }
 
-  /// 리사이즈 종료: 앵커 재계산.
+  /// 리사이즈 종료: 앵커 재계산 + 접힌 노드 비율 보정.
   void endResize(String groupId) {
     final vs = state.viewerSize;
     _setState(
@@ -784,17 +862,24 @@ class DockNotifier extends Notifier<DockState> {
         groups: [
           for (final g in state.groups)
             if (g.id == groupId)
-              _clampToViewport(
-                g
+              () {
+                final snapped = g
                     .copyWith(width: _snap(g.width), height: _snap(g.height))
                     .updateFromAbsolute(
                       _snap(g.offsetX),
                       _snap(g.offsetY),
                       vs.width,
                       vs.height,
-                    ),
-                vs,
-              )
+                    );
+                // 접힌 노드 고정 + 가장 큰 패널만 유동 보정
+                final fixedRoot = _fixSplitRatiosForResize(
+                  snapped.root, snapped.height, snapped.height,
+                );
+                return _clampToViewport(
+                  snapped.copyWith(root: fixedRoot),
+                  vs,
+                );
+              }()
             else
               g,
         ],

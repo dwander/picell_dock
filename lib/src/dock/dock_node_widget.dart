@@ -52,6 +52,7 @@ class DockNodeWidget extends ConsumerWidget {
     return switch (node) {
       DockLeaf(:final panelId) => _buildLeaf(panelId, ref),
       DockSplit(:final axis, :final children, :final ratios) => _buildSplit(
+        context,
         axis,
         children,
         ratios,
@@ -90,6 +91,7 @@ class DockNodeWidget extends ConsumerWidget {
   }
 
   Widget _buildSplit(
+    BuildContext context,
     SplitAxis axis,
     List<DockNode> children,
     List<double> ratios,
@@ -97,6 +99,11 @@ class DockNodeWidget extends ConsumerWidget {
     final direction = axis == SplitAxis.horizontal
         ? Axis.horizontal
         : Axis.vertical;
+    final isVertical = axis == SplitAxis.vertical;
+    final collapsedH = isVertical
+        ? DockTheme.of(context).config.groupHeaderHeight * 2 +
+            DockTheme.of(context).config.tabBarHeight
+        : 0.0;
 
     return Flex(
       direction: direction,
@@ -110,14 +117,25 @@ class DockNodeWidget extends ConsumerWidget {
               splitPath: nodePath,
               dragContext: dragContext,
             ),
-          Flexible(
-            flex: (ratios[i] * 1000).round(),
-            child: DockNodeWidget(
-              node: children[i],
-              dragContext: dragContext,
-              nodePath: [...nodePath, i],
+          // 세로 Split에서 접힌 자식은 고정 픽셀 크기 (Flexible 비율 떨림 방지)
+          if (isVertical && children[i].isCollapsed)
+            SizedBox(
+              height: collapsedH,
+              child: DockNodeWidget(
+                node: children[i],
+                dragContext: dragContext,
+                nodePath: [...nodePath, i],
+              ),
+            )
+          else
+            Flexible(
+              flex: (ratios[i] * 1000).round(),
+              child: DockNodeWidget(
+                node: children[i],
+                dragContext: dragContext,
+                nodePath: [...nodePath, i],
+              ),
             ),
-          ),
         ],
       ],
     );
