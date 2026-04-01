@@ -1951,22 +1951,74 @@ class DockNotifier extends Notifier<DockState> {
 
   void _addPanelAsNewGroup(String panelId) {
     final lastSize = _removedPanelSizes.remove(panelId);
+    final w = lastSize?.width ?? _defaultPanelWidth;
+    final h = lastSize?.height ?? _defaultPanelHeight;
+    final vs = state.viewerSize;
+
+    // 우측 엣지 패널 영역을 제외한 X 좌표 계산
+    final rightEdge = state.edgePanel(ViewportEdge.right);
+    final rightEdgeWidth = rightEdge?.width ?? 0;
+    final absX = vs.width - rightEdgeWidth - w - _displayGap;
+
+    final absY = _findNonOverlappingY(
+      x: absX,
+      width: w,
+      height: h,
+      startY: _displayGap,
+      viewerSize: vs,
+    );
+
     final newGroup = DockGroup(
       id: 'group_${_nextGroupId++}',
       root: DockLeaf(panelId: panelId),
-      anchorX: AnchorX.center,
-      anchorY: AnchorY.center,
-      offsetX: 0,
-      offsetY: 0,
-      width: lastSize?.width ?? _defaultPanelWidth,
-      height: lastSize?.height ?? _defaultPanelHeight,
+      offsetX: absX,
+      offsetY: absY,
+      width: w,
+      height: h,
+      zOrder: _maxZOrder() + 1,
       headerless: _resolveHeaderless(DockLeaf(panelId: panelId)),
-    );
+    ).updateFromAbsolute(absX, absY, vs.width, vs.height);
     _setState(DockState(
       groups: [...state.groups, newGroup],
       viewerSize: state.viewerSize,
       focusedPanelId: panelId,
     ));
+  }
+
+  /// 주어진 X 위치에서 기존 패널과 겹치지 않는 Y 좌표를 찾는다.
+  ///
+  /// [startY]부터 시작하여, 겹치는 패널이 있으면 그 아래로 밀어낸다.
+  /// 뷰포트를 벗어나면 startY로 폴백.
+  double _findNonOverlappingY({
+    required double x,
+    required double width,
+    required double height,
+    required double startY,
+    required Size viewerSize,
+  }) {
+    var y = startY;
+    final rects = state.displayRects;
+
+    // 최대 패널 수만큼 반복 (무한 루프 방지)
+    for (var i = 0; i < state.groups.length; i++) {
+      var overlapped = false;
+      for (final group in state.groups) {
+        final oRect = rects[group.id] ?? _groupRect(group);
+        // X축 겹침 확인
+        if (x >= oRect.right || x + width <= oRect.left) continue;
+        // Y축 겹침 확인
+        if (y >= oRect.bottom || y + height <= oRect.top) continue;
+        // 겹침 발견 — 해당 패널 아래로 밀어냄
+        y = oRect.bottom + _displayGap;
+        overlapped = true;
+        break;
+      }
+      if (!overlapped) break;
+    }
+
+    // 뷰포트 하단을 벗어나면 startY로 폴백
+    if (y + height > viewerSize.height) y = startY;
+    return y;
   }
 
   /// 노드 내 패널이 1개이고 헤더리스 대상이면 true.
@@ -1979,7 +2031,16 @@ class DockNotifier extends Notifier<DockState> {
   }
 
   /// 그룹을 독 시스템에서 제거.
+  ///
+  /// 그룹 내 패널들의 마지막 크기를 기억하여 togglePanel 복원 시 참조.
   void removeGroup(String groupId) {
+    final group = _findGroup(state.groups, groupId);
+    if (group != null) {
+      final size = Size(group.width, group.height);
+      for (final panelId in group.root.collectPanelIds()) {
+        _removedPanelSizes[panelId] = size;
+      }
+    }
     _setState(
       DockState(
         groups: [
