@@ -144,7 +144,7 @@ ref.watch(dockProvider) 구독 위젯 리빌드
 | `dockToViewportEdge(groupId, edge)` | 그룹 → 뷰포트 좌/우 고정 |
 | `undockFromViewportEdge(groupId)` | 엣지 → 플로팅 전환 |
 | `performTabDock(srcId, dstId, nodePath)` | 두 그룹을 Tabbed로 합치기 |
-| `performEdgeDock(srcId, dstId, edge, nodePath)` | 특정 방향으로 Split 생성 |
+| `performEdgeDock(srcId, dstId, edge, nodePath)` | 특정 방향으로 Split 생성 (같은 축이면 플랫 병합) |
 | `undockTab(srcGroupId, nodePath, tabIndex, cursor?)` | 탭 분리 → 새 그룹 반환 |
 | `undockNode(srcGroupId, nodePath, cursor?)` | Split 노드 분리 → 새 그룹 반환 |
 
@@ -154,6 +154,18 @@ ref.watch(dockProvider) 구독 위젯 리빌드
 |---|---|
 | `switchTab(groupId, nodePath, tabIndex)` | 활성 탭 변경 |
 | `reorderTab(groupId, nodePath, oldIndex, newIndex)` | 탭 순서 변경 |
+
+### 패널 접기/펼치기
+
+| 메서드 | 설명 |
+|---|---|
+| `toggleCollapse(groupId, nodePath)` | 패널 접기/펼치기 토글 |
+
+- `DockTabbed.collapsed` / `expandedHeight` 필드로 상태 영속화.
+- **플로팅 그룹:** 접으면 그룹 높이가 줄어들고, 펼치면 `expandedHeight`로 복원. 가장 큰 패널만 유동 리사이즈.
+- **엣지 패널:** 그룹 높이 고정(뷰포트), 가장 큰 비접힌 패널이 여유 공간 흡수.
+- 접힌 패널은 `SizedBox(height: collapsedH)` 고정 크기로 렌더링 (Flexible 비율 떨림 방지).
+- 그룹 내 펼쳐진 패널이 1개만 남으면 접기 버튼 자동 숨김.
 
 ### 고스트 도킹 (탭 드래그 분리 중 도킹 감지)
 
@@ -187,9 +199,10 @@ DockSplit(axis, children, ratios)
       )
       (재귀 — nodePath로 트리 경로 추적)
 
-DockTabbed(tabIds, activeIndex)
+DockTabbed(tabIds, activeIndex, collapsed?, expandedHeight?)
 └─ _buildTabbed()
-   └─ Column(
+   ├─ collapsed=true → Column(탭 바(둥근 하단 모서리), 하단 여백)
+   └─ collapsed=false → Column(
         _DraggableTabBar(탭 드래그 + 오버레이),
         Expanded(panelDelegate.buildPanel(tabIds[activeIndex]))
       )
@@ -328,6 +341,18 @@ AnchorY: top  | center | bottom
 2. `DockPanelDelegate.labelOf`에 표시 이름 추가
 3. `DockSettings.isHeaderless`에 해당 여부 추가 (필요 시)
 4. `DockSettings.defaultLayout`에 초기 그룹에 포함 (필요 시)
+
+### 엣지 도킹 시 Split 구조
+
+`_performEdgeDock`은 같은 축의 기존 Split에 도킹할 때 **중첩하지 않고 플랫하게 병합**한다.
+
+```
+예: 세로 Split[A, B]에 C를 아래로 도킹
+  ✅ Split[A, B, C]        (플랫 — 기존 자식에 추가)
+  ❌ Split[Split[A, B], C]  (중첩 — 이전 방식, 더 이상 사용하지 않음)
+```
+
+이를 통해 접기/펼치기, 리사이즈 비율 계산, 세퍼레이터 공간 계산이 단순해진다.
 
 ### 테마 색상 변경
 
