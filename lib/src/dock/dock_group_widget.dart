@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 
 import '../models/dock_group.dart';
+import '../models/dock_node.dart';
 import '../providers/dock_provider.dart';
 import '../theme/dock_theme.dart';
 import '../widgets/border_scan_effect.dart';
@@ -87,6 +88,7 @@ class _DockGroupWidgetState extends ConsumerState<DockGroupWidget>
 
   @override
   void dispose() {
+    _cleanModeCurve.dispose();
     _cleanModeController.dispose();
     super.dispose();
   }
@@ -137,10 +139,7 @@ class _DockGroupWidgetState extends ConsumerState<DockGroupWidget>
     final focusedPanelId = dockState.focusedPanelId;
     final isFocused =
         focusedPanelId != null &&
-        ref
-            .read(dockProvider.notifier)
-            .collectPanelIds(group.root)
-            .contains(focusedPanelId);
+        group.root.collectPanelIds().contains(focusedPanelId);
     final displaySettings = DockTheme.of(context).displaySettings;
     final showFocusHighlight = displaySettings.showFocusHighlight;
 
@@ -290,7 +289,7 @@ class _GroupBadgeButtons extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final delegate = DockTheme.of(context).panelDelegate;
     final cs = DockTheme.of(context).colorScheme;
-    final panelIds = ref.read(dockProvider.notifier).collectPanelIds(group.root);
+    final panelIds = group.root.collectPanelIds();
     final hasClosable = panelIds.isNotEmpty && panelIds.every(delegate.isClosable);
 
     // 뷰포트 중심 대비 패널 위치 → 안쪽 방향에 배치

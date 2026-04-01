@@ -12,10 +12,12 @@ lib/src/
 │   ├── dock_config.dart          # 레이아웃 크기 상수 (const 생성자)
 │   └── dock_settings.dart        # 앱별 동작 설정 (호스트 앱에서 주입)
 ├── models/
-│   ├── dock_node.dart            # DockNode sealed class (Leaf/Split/Tabbed)
+│   ├── dock_node.dart            # DockNode sealed class (Leaf/Split/Tabbed) + DockNodeUtils extension
 │   └── dock_group.dart           # DockGroup 모델 + 앵커 좌표계
 ├── providers/
-│   ├── dock_provider.dart        # 전체 상태 관리 + 도킹 로직
+│   ├── dock_state.dart           # DockState, DockPreview, DockEdge 모델
+│   ├── dock_node_tree.dart       # 순수 트리 유틸리티 (getNodeAt, replaceNodeAt 등)
+│   ├── dock_provider.dart        # DockNotifier 상태 관리 + 도킹 로직
 │   ├── dock_settings_provider.dart
 │   └── panel_zoom_provider.dart  # 패널별 줌 배율
 ├── services/
@@ -26,11 +28,13 @@ lib/src/
 ├── dock/
 │   ├── dock_overlay.dart         # 최상위 렌더링 위젯
 │   ├── dock_group_widget.dart    # DockGroup → Positioned 박스
-│   ├── dock_node_widget.dart     # DockNode 트리 재귀 렌더링
+│   ├── dock_node_widget.dart     # DockNode 트리 재귀 렌더링 + 공통 위젯
+│   ├── dock_tab_bar.dart         # (part) 탭 바 + 탭 드래그/분리 로직
+│   ├── dock_headerless_frame.dart # (part) 헤더리스 패널 프레임
 │   ├── dock_resize_handle.dart   # 8방향 리사이즈 핸들
 │   ├── dock_drag_mixin.dart      # 그룹 드래그 공통 Mixin
 │   ├── dock_drop_indicator.dart  # 도킹 대상 하이라이트
-│   └── dock_grid_overlay.dart   # 드래그 중 스냅 그리드 시각화
+│   └── dock_grid_overlay.dart    # 드래그 중 스냅 그리드 시각화
 └── widgets/
     ├── border_scan_effect.dart   # 플로팅 전환 시 보더 스캔 이펙트
     ├── edge_dock_effect.dart     # 엣지 도킹 시 글로우 펄스 이펙트

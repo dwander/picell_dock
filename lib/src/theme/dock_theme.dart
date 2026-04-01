@@ -89,8 +89,12 @@ class DockTheme extends InheritedWidget {
 
   static DockTheme of(BuildContext context) {
     final t = context.dependOnInheritedWidgetOfExactType<DockTheme>();
-    assert(t != null, 'DockTheme을 찾을 수 없습니다. DockOverlay 하위에서 사용하세요.');
-    return t!;
+    if (t == null) {
+      throw FlutterError(
+        'DockTheme을 찾을 수 없습니다. DockOverlay 하위에서 사용하세요.',
+      );
+    }
+    return t;
   }
 
   @override

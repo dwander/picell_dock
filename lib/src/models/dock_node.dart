@@ -80,7 +80,7 @@ class DockTabbed extends DockNode {
   final int activeIndex;
 
   const DockTabbed({required this.tabIds, this.activeIndex = 0})
-    : assert(tabIds.length > 0),
+    : assert(tabIds.length > 0), // ignore: prefer_is_empty — const constructor
       assert(activeIndex >= 0 && activeIndex < tabIds.length);
 
   @override
@@ -97,4 +97,18 @@ class DockTabbed extends DockNode {
 
   @override
   List<Object?> get props => [tabIds, activeIndex];
+}
+
+/// DockNode 트리 유틸리티.
+extension DockNodeUtils on DockNode {
+  /// 트리 내 모든 패널 ID를 수집.
+  List<String> collectPanelIds() {
+    return switch (this) {
+      DockLeaf(:final panelId) => [panelId],
+      DockSplit(:final children) => [
+        for (final child in children) ...child.collectPanelIds(),
+      ],
+      DockTabbed(:final tabIds) => [...tabIds],
+    };
+  }
 }

@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui';
 
-import 'package:equatable/equatable.dart';
 import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/widgets.dart' show FocusNode;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -11,108 +10,13 @@ import '../config/dock_config.dart';
 import '../models/dock_group.dart';
 import '../models/dock_node.dart';
 import '../services/dock_layout_service.dart';
+import 'dock_node_tree.dart';
 import 'dock_settings_provider.dart';
+import 'dock_state.dart';
+export 'dock_state.dart';
 
 // 패키지 내부 계산에서 사용하는 기본 config 인스턴스.
-final _config = const DockConfig();
-
-/// 도킹 방향.
-enum DockEdge { top, right, bottom, left, center }
-
-/// 드래그 중 도킹 프리뷰 정보.
-class DockPreview extends Equatable {
-  final String targetGroupId;
-  final DockEdge edge;
-  final Rect highlightRect;
-
-  /// 그룹 내 도킹 대상 노드의 경로 (Split의 자식 인덱스 리스트).
-  /// 빈 리스트면 그룹 루트에 도킹.
-  final List<int> nodePath;
-
-  /// true면 뷰포트 엣지 도킹 프리뷰 (패널 간 도킹과 구별).
-  final bool isViewportEdge;
-
-  const DockPreview({
-    required this.targetGroupId,
-    required this.edge,
-    required this.highlightRect,
-    this.nodePath = const [],
-    this.isViewportEdge = false,
-  });
-
-  @override
-  List<Object?> get props => [
-    targetGroupId,
-    edge,
-    highlightRect,
-    nodePath,
-    isViewportEdge,
-  ];
-}
-
-/// 노드 rect 정보 (도킹 감지용).
-class _NodeRect {
-  final Rect rect;
-  final List<int> path;
-  final DockNode node;
-
-  const _NodeRect({required this.rect, required this.path, required this.node});
-}
-
-/// 독 시스템의 전체 상태.
-class DockState extends Equatable {
-  final List<DockGroup> groups;
-  final String? draggingGroupId;
-  final String? resizingGroupId;
-  final DockPreview? dockPreview;
-  final Size viewerSize;
-
-  /// 현재 포커스된 그룹 ID.
-  final String? focusedPanelId;
-
-  /// 뷰포트 클램핑 + 1축 회피가 적용된 표시용 사각형.
-  /// key: groupId, value: Rect(x, y, w, h).
-  final Map<String, Rect> displayRects;
-
-  const DockState({
-    this.groups = const [],
-    this.draggingGroupId,
-    this.resizingGroupId,
-    this.dockPreview,
-    this.viewerSize = Size.zero,
-    this.focusedPanelId,
-    this.displayRects = const {},
-  });
-
-  /// 드래그 또는 리사이즈가 활성 상태인지.
-  bool get isInteracting => draggingGroupId != null || resizingGroupId != null;
-
-  /// 플로팅 그룹만 반환.
-  List<DockGroup> get floatingGroups =>
-      groups.where((g) => g.dockedEdge == null).toList();
-
-  /// 렌더링 순서 정렬: 엣지 패널 먼저(하단), 플로팅은 zOrder 오름차순.
-  List<DockGroup> get sortedGroups => [
-    ...groups.where((g) => g.dockedEdge != null),
-    ...(groups.where((g) => g.dockedEdge == null).toList()
-      ..sort((a, b) => a.zOrder.compareTo(b.zOrder))),
-  ];
-
-  /// 특정 엣지에 도킹된 패널 반환.
-  DockGroup? edgePanel(ViewportEdge edge) =>
-      groups.where((g) => g.dockedEdge == edge).firstOrNull;
-
-  @override
-  List<Object?> get props => [
-    groups,
-    draggingGroupId,
-    resizingGroupId,
-    dockPreview,
-    viewerSize,
-    focusedPanelId,
-    displayRects,
-  ];
-}
+const _config = DockConfig();
 
 /// 독 상태를 관리하는 Notifier.
 class DockNotifier extends Notifier<DockState> {
@@ -614,12 +518,11 @@ class DockNotifier extends Notifier<DockState> {
   /// 고스트 도킹 프리뷰 초기화.
   void clearGhostDockPreview() {
     if (state.dockPreview == null) return;
-    state = DockState(
+    _setState(DockState(
       groups: state.groups,
       viewerSize: state.viewerSize,
       focusedPanelId: state.focusedPanelId,
-      displayRects: state.displayRects,
-    );
+    ));
   }
 
   void endDrag() {
@@ -741,7 +644,7 @@ class DockNotifier extends Notifier<DockState> {
       ratios: newRatios,
     );
 
-    final newRoot = _replaceNodeAt(group.root, nodePath, newSplit);
+    final newRoot = replaceNodeAt(group.root, nodePath, newSplit);
     _setState(
       DockState(
         groups: [
@@ -769,7 +672,7 @@ class DockNotifier extends Notifier<DockState> {
 
     final newTabbed = DockTabbed(tabIds: node.tabIds, activeIndex: tabIndex);
 
-    final newRoot = _replaceNodeAt(group.root, nodePath, newTabbed);
+    final newRoot = replaceNodeAt(group.root, nodePath, newTabbed);
     _setState(
       DockState(
         groups: [
@@ -815,7 +718,7 @@ class DockNotifier extends Notifier<DockState> {
       tabIds: newTabIds,
       activeIndex: newActiveIndex,
     );
-    final newRoot = _replaceNodeAt(group.root, nodePath, newTabbed);
+    final newRoot = replaceNodeAt(group.root, nodePath, newTabbed);
     _setState(
       DockState(
         groups: [
@@ -1004,43 +907,6 @@ class DockNotifier extends Notifier<DockState> {
     return null;
   }
 
-  /// 그룹 내 개별 패널(리프/탭) rect를 재귀적으로 계산.
-  List<_NodeRect> _calcNodeRects(
-    DockNode node,
-    Rect rect,
-    List<int> parentPath,
-  ) {
-    return switch (node) {
-      DockLeaf() ||
-      DockTabbed() => [_NodeRect(rect: rect, path: parentPath, node: node)],
-      DockSplit(:final axis, :final children, :final ratios) => () {
-        final results = <_NodeRect>[];
-        double offset = 0;
-        for (int i = 0; i < children.length; i++) {
-          final childRect = axis == SplitAxis.horizontal
-              ? Rect.fromLTWH(
-                  rect.left + offset,
-                  rect.top,
-                  rect.width * ratios[i],
-                  rect.height,
-                )
-              : Rect.fromLTWH(
-                  rect.left,
-                  rect.top + offset,
-                  rect.width,
-                  rect.height * ratios[i],
-                );
-          results.addAll(
-            _calcNodeRects(children[i], childRect, [...parentPath, i]),
-          );
-          offset += axis == SplitAxis.horizontal
-              ? rect.width * ratios[i]
-              : rect.height * ratios[i];
-        }
-        return results;
-      }(),
-    };
-  }
 
   DockPreview? _detectDockTarget(
     DockGroup dragging,
@@ -1064,7 +930,7 @@ class DockNotifier extends Notifier<DockState> {
         if (centerZone.width > 0 &&
             centerZone.height > 0 &&
             centerZone.contains(anchor)) {
-          final nodeRects = _calcNodeRects(target.root, targetRect, const []);
+          final nodeRects = calcNodeRects(target.root, targetRect, const []);
           for (final nr in nodeRects) {
             if (nr.rect.deflate(_dockDetectDistance).contains(anchor)) {
               return DockPreview(
@@ -1285,78 +1151,7 @@ class DockNotifier extends Notifier<DockState> {
     };
   }
 
-  // ── 노드 트리 조작 ──
-
-  /// 경로를 따라 노드를 찾아 반환.
-  DockNode getNodeAt(DockNode root, List<int> path) {
-    DockNode current = root;
-    for (final index in path) {
-      if (current is DockSplit) {
-        assert(
-          index >= 0 && index < current.children.length,
-          'getNodeAt: index $index out of bounds (children: ${current.children.length})',
-        );
-        if (index < 0 || index >= current.children.length) return current;
-        current = current.children[index];
-      } else {
-        assert(
-          false,
-          'getNodeAt: expected DockSplit but got ${current.runtimeType} with remaining path',
-        );
-        return current;
-      }
-    }
-    return current;
-  }
-
-  /// 경로의 노드를 새 노드로 교체한 트리를 반환.
-  DockNode _replaceNodeAt(DockNode root, List<int> path, DockNode newNode) {
-    if (path.isEmpty) return newNode;
-
-    if (root is DockSplit) {
-      final index = path.first;
-      assert(
-        index >= 0 && index < root.children.length,
-        '_replaceNodeAt: index $index out of bounds (children: ${root.children.length})',
-      );
-      if (index < 0 || index >= root.children.length) return root;
-      final newChildren = [
-        for (int i = 0; i < root.children.length; i++)
-          if (i == index)
-            _replaceNodeAt(root.children[i], path.sublist(1), newNode)
-          else
-            root.children[i],
-      ];
-      return DockSplit(
-        axis: root.axis,
-        children: newChildren,
-        ratios: root.ratios,
-      );
-    }
-    return newNode;
-  }
-
-  /// Split 노드에서 자식을 제거하고 트리를 정리.
-  ///
-  /// 자식이 1개만 남으면 해당 자식으로 대체 (Split 해소).
-  DockNode _removeChildAt(DockSplit split, int childIndex) {
-    final newChildren = [...split.children]..removeAt(childIndex);
-    final newRatios = [...split.ratios]..removeAt(childIndex);
-
-    // 비율 재정규화
-    final sum = newRatios.fold<double>(0, (a, b) => a + b);
-    final normalizedRatios = sum > 1e-6
-        ? [for (final r in newRatios) r / sum]
-        : [for (int i = 0; i < newRatios.length; i++) 1.0 / newRatios.length];
-
-    if (newChildren.length == 1) return newChildren.first;
-
-    return DockSplit(
-      axis: split.axis,
-      children: newChildren,
-      ratios: normalizedRatios,
-    );
-  }
+  // ── 노드 트리 조작 (dock_node_tree.dart로 분리된 함수 사용) ──
 
   /// 탭 그룹에서 특정 탭을 분리하여 새 독립 그룹으로 생성.
   /// 생성된 그룹의 ID를 반환. 실패 시 null.
@@ -1386,9 +1181,9 @@ class DockNotifier extends Notifier<DockState> {
         ? DockLeaf(panelId: remainingIds.first)
         : DockTabbed(tabIds: remainingIds, activeIndex: newActiveIndex);
 
-    final newRoot = _replaceNodeAt(group.root, nodePath, newNode);
+    final newRoot = replaceNodeAt(group.root, nodePath, newNode);
     // 남은 패널이 1개이고 헤더리스 대상이면 그룹도 헤더리스로 전환
-    final remainingPanelIds = collectPanelIds(newRoot);
+    final remainingPanelIds = newRoot.collectPanelIds();
     final shouldBeHeaderless = remainingPanelIds.length == 1 &&
         ref.read(dockSettingsProvider).isHeaderless(remainingPanelIds.first);
     final updatedGroup = group.copyWith(
@@ -1401,7 +1196,7 @@ class DockNotifier extends Notifier<DockState> {
 
     // 탭 노드의 실제 rect 계산 (Split 내부일 경우 그룹 전체가 아닌 노드 크기 사용)
     final groupRect = _groupRect(group);
-    final nodeRects = _calcNodeRects(group.root, groupRect, []);
+    final nodeRects = calcNodeRects(group.root, groupRect, []);
     final nodeRect =
         nodeRects
             .where((nr) => listEquals(nr.path, nodePath))
@@ -1468,14 +1263,14 @@ class DockNotifier extends Notifier<DockState> {
     if (parent is! DockSplit) return null;
 
     final groupRect = _groupRect(group);
-    final childRects = _calcDirectChildRects(parent, groupRect);
+    final childRects = calcDirectChildRects(parent, groupRect);
 
     final removedNode = parent.children[childIndex];
-    final newParent = _removeChildAt(parent, childIndex);
-    final newRoot = _replaceNodeAt(group.root, parentPath, newParent);
+    final newParent = removeChildAt(parent, childIndex);
+    final newRoot = replaceNodeAt(group.root, parentPath, newParent);
 
     // 남는 쪽의 크기를 계산 — 나머지 자식들의 영역
-    final remainingRect = _calcRemainingRect(parent, groupRect, childIndex);
+    final remainingRect = calcRemainingRect(parent, groupRect, childIndex);
 
     final maxZ = _maxZOrder();
 
@@ -1494,7 +1289,7 @@ class DockNotifier extends Notifier<DockState> {
       absY = removedRect.top + offset.dy;
     }
     final newGroupId = 'group_${_nextGroupId++}';
-    final removedIds = collectPanelIds(removedNode);
+    final removedIds = removedNode.collectPanelIds();
     final newGroup = DockGroup(
       id: newGroupId,
       root: removedNode,
@@ -1508,7 +1303,7 @@ class DockNotifier extends Notifier<DockState> {
     ).updateFromAbsolute(absX, absY, vs.width, vs.height);
 
     // 남는 그룹도 크기를 축소 + 헤더리스 재판정
-    final remainingIds = collectPanelIds(newRoot);
+    final remainingIds = newRoot.collectPanelIds();
     final updatedGroup = group
         .copyWith(
           root: newRoot,
@@ -1538,48 +1333,6 @@ class DockNotifier extends Notifier<DockState> {
     return newGroupId;
   }
 
-  /// Split의 직속 자식별 rect를 계산.
-  List<Rect> _calcDirectChildRects(DockSplit split, Rect rect) {
-    final rects = <Rect>[];
-    double offset = 0;
-    for (int i = 0; i < split.children.length; i++) {
-      final childRect = split.axis == SplitAxis.horizontal
-          ? Rect.fromLTWH(
-              rect.left + offset,
-              rect.top,
-              rect.width * split.ratios[i],
-              rect.height,
-            )
-          : Rect.fromLTWH(
-              rect.left,
-              rect.top + offset,
-              rect.width,
-              rect.height * split.ratios[i],
-            );
-      rects.add(childRect);
-      offset += split.axis == SplitAxis.horizontal
-          ? rect.width * split.ratios[i]
-          : rect.height * split.ratios[i];
-    }
-    return rects;
-  }
-
-  /// 자식 제거 후 나머지 영역의 rect를 계산.
-  Rect _calcRemainingRect(DockSplit split, Rect rect, int removedIndex) {
-    final childRects = _calcDirectChildRects(split, rect);
-    double left = double.infinity, top = double.infinity;
-    double right = 0, bottom = 0;
-    for (int i = 0; i < childRects.length; i++) {
-      if (i == removedIndex) continue;
-      final r = childRects[i];
-      left = math.min(left, r.left);
-      top = math.min(top, r.top);
-      right = math.max(right, r.right);
-      bottom = math.max(bottom, r.bottom);
-    }
-    if (left == double.infinity) return rect;
-    return Rect.fromLTRB(left, top, right, bottom);
-  }
 
   // ── 도킹 실행 ──
 
@@ -1690,14 +1443,14 @@ class DockNotifier extends Notifier<DockState> {
     final target = _findGroup(state.groups, targetId);
     if (source == null || target == null) return;
 
-    final sourceIds = collectPanelIds(source.root);
+    final sourceIds = source.root.collectPanelIds();
     final targetNode = getNodeAt(target.root, nodePath);
-    final targetIds = collectPanelIds(targetNode);
+    final targetIds = targetNode.collectPanelIds();
     final allIds = [...targetIds, ...sourceIds];
 
     final newTabbed = DockTabbed(tabIds: allIds, activeIndex: targetIds.length);
 
-    final newRoot = _replaceNodeAt(target.root, nodePath, newTabbed);
+    final newRoot = replaceNodeAt(target.root, nodePath, newTabbed);
     // 탭이 합쳐지면 헤더리스 해제 + 뷰포트 클램핑
     final mergedGroup = _clampToViewport(
       target.copyWith(root: newRoot, headerless: false),
@@ -1756,16 +1509,6 @@ class DockNotifier extends Notifier<DockState> {
         .updateFromAbsolute(clamped.left, clamped.top, vs.width, vs.height);
   }
 
-  /// DockNode 트리에서 모든 패널 ID를 수집.
-  List<String> collectPanelIds(DockNode node) {
-    return switch (node) {
-      DockLeaf(:final panelId) => [panelId],
-      DockSplit(:final children) => [
-        for (final child in children) ...collectPanelIds(child),
-      ],
-      DockTabbed(:final tabIds) => [...tabIds],
-    };
-  }
 }
 
 final dockProvider = NotifierProvider<DockNotifier, DockState>(

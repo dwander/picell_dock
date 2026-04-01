@@ -78,6 +78,7 @@ class _GridPainter extends CustomPainter {
     );
     final maxY = math.min(size.height, c.dy + fadeRadius + _dotSpacing);
 
+    final paint = Paint()..style = PaintingStyle.fill;
     for (double x = minX; x < maxX; x += _dotSpacing) {
       for (double y = minY; y < maxY; y += _dotSpacing) {
         final dx = x - c.dx;
@@ -86,9 +87,7 @@ class _GridPainter extends CustomPainter {
         if (distSq > fadeRadiusSq) continue;
 
         final alpha = (1.0 - math.sqrt(distSq) / fadeRadius) * 0.4;
-        final paint = Paint()
-          ..color = baseColor.withValues(alpha: alpha)
-          ..style = PaintingStyle.fill;
+        paint.color = baseColor.withValues(alpha: alpha);
         canvas.drawCircle(Offset(x, y), _dotRadius, paint);
       }
     }
