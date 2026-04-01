@@ -1,0 +1,99 @@
+import 'dart:convert';
+import 'dart:developer' as dev;
+import 'dart:io';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
+
+import '../models/dock_group.dart';
+
+/// 독 레이아웃 상태를 JSON 파일로 저장·복원하는 서비스.
+///
+/// 파일 구조:
+/// ```json
+/// {
+///   "version": 1,
+///   "currentLayout": { "groups": [...] },
+///   "presets": {}
+/// }
+/// ```
+///
+/// 순수 Dart — Flutter 위젯 의존성 없음.
+class DockLayoutService {
+  static const String _fileName = 'dock_layout.json';
+  static const int _version = 2;
+
+  String? _filePath;
+
+  /// 저장 파일 경로를 초기화하고 반환.
+  Future<String> _getFilePath() async {
+    if (_filePath != null) return _filePath!;
+    final appDir = await getApplicationSupportDirectory();
+    _filePath = p.join(appDir.path, _fileName);
+    return _filePath!;
+  }
+
+  /// 저장된 레이아웃 로드. 그룹 목록을 반환.
+  Future<List<DockGroup>?> loadLayout() async {
+    try {
+      final path = await _getFilePath();
+      final file = File(path);
+      if (!file.existsSync()) return null;
+
+      final content = await file.readAsString();
+      final json = jsonDecode(content) as Map<String, dynamic>;
+
+      final version = json['version'] as int? ?? 0;
+      // v1: dockedEdge 없음 → fromJson에서 null로 처리되므로 그대로 로드
+      if (version < 1 || version > _version) return null;
+
+      final layout = json['currentLayout'] as Map<String, dynamic>?;
+      if (layout == null) return null;
+
+      final groupsJson = layout['groups'] as List?;
+      if (groupsJson == null || groupsJson.isEmpty) return null;
+
+      return [
+        for (final g in groupsJson)
+          DockGroup.fromJson(g as Map<String, dynamic>),
+      ];
+    } catch (e, st) {
+      dev.log(
+        '레이아웃 로드 실패',
+        error: e,
+        stackTrace: st,
+        name: 'DockLayoutService',
+      );
+      return null;
+    }
+  }
+
+  /// 현재 레이아웃(그룹 목록)을 저장.
+  Future<void> saveLayout(List<DockGroup> groups) async {
+    final path = await _getFilePath();
+    final file = File(path);
+
+    // 기존 파일에서 presets 등 다른 데이터 유지
+    Map<String, dynamic> existing = {};
+    try {
+      if (file.existsSync()) {
+        existing =
+            jsonDecode(await file.readAsString()) as Map<String, dynamic>;
+      }
+    } catch (e, st) {
+      dev.log(
+        '기존 레이아웃 파싱 실패, 새로 생성',
+        error: e,
+        stackTrace: st,
+        name: 'DockLayoutService',
+      );
+    }
+
+    existing['version'] = _version;
+    existing['currentLayout'] = {
+      'groups': [for (final g in groups) g.toJson()],
+    };
+
+    final jsonStr = const JsonEncoder.withIndent('  ').convert(existing);
+    await file.writeAsString(jsonStr);
+  }
+}
