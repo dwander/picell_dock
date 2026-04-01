@@ -1272,13 +1272,9 @@ class DockNotifier extends Notifier<DockState> {
         : DockTabbed(tabIds: remainingIds, activeIndex: newActiveIndex);
 
     final newRoot = replaceNodeAt(group.root, nodePath, newNode);
-    // 남은 패널이 1개이고 헤더리스 대상이면 그룹도 헤더리스로 전환
-    final remainingPanelIds = newRoot.collectPanelIds();
-    final shouldBeHeaderless = remainingPanelIds.length == 1 &&
-        ref.read(dockSettingsProvider).isHeaderless(remainingPanelIds.first);
     final updatedGroup = group.copyWith(
       root: newRoot,
-      headerless: shouldBeHeaderless,
+      headerless: _resolveHeaderless(newRoot),
     );
 
     final maxZ = _maxZOrder();
@@ -1315,7 +1311,7 @@ class DockNotifier extends Notifier<DockState> {
       width: nodeRect.width,
       height: nodeRect.height,
       zOrder: maxZ + 1,
-      headerless: ref.read(dockSettingsProvider).isHeaderless(removedId),
+      headerless: _resolveHeaderless(DockLeaf(panelId: removedId)),
     ).updateFromAbsolute(absX, absY, vs.width, vs.height);
 
     _setState(
@@ -1379,7 +1375,6 @@ class DockNotifier extends Notifier<DockState> {
       absY = removedRect.top + offset.dy;
     }
     final newGroupId = 'group_${_nextGroupId++}';
-    final removedIds = removedNode.collectPanelIds();
     final newGroup = DockGroup(
       id: newGroupId,
       root: removedNode,
@@ -1388,19 +1383,16 @@ class DockNotifier extends Notifier<DockState> {
       width: removedRect.width,
       height: removedRect.height,
       zOrder: maxZ + 1,
-      headerless: removedIds.length == 1 &&
-          ref.read(dockSettingsProvider).isHeaderless(removedIds.first),
+      headerless: _resolveHeaderless(removedNode),
     ).updateFromAbsolute(absX, absY, vs.width, vs.height);
 
     // 남는 그룹도 크기를 축소 + 헤더리스 재판정
-    final remainingIds = newRoot.collectPanelIds();
     final updatedGroup = group
         .copyWith(
           root: newRoot,
           width: remainingRect.width,
           height: remainingRect.height,
-          headerless: remainingIds.length == 1 &&
-              ref.read(dockSettingsProvider).isHeaderless(remainingIds.first),
+          headerless: _resolveHeaderless(newRoot),
         )
         .updateFromAbsolute(
           remainingRect.left,
@@ -1870,6 +1862,120 @@ class DockNotifier extends Notifier<DockState> {
       ),
     );
     _onLayoutChanged();
+  }
+
+  // ── 패널 토글 ──
+
+  /// 제거된 패널의 마지막 크기 (복원용).
+  final Map<String, Size> _removedPanelSizes = {};
+
+  /// 패널 표시/숨김 토글.
+  ///
+  /// 패널이 트리에 존재하면 해당 탭(또는 그룹)을 제거하고,
+  /// 없으면 독립 그룹으로 새로 생성한다.
+  /// 제거 시 그룹 크기를 기억하여 복원 시 동일 크기로 생성.
+  void togglePanel(String panelId) {
+    final ownerGroup = _findGroupContaining(panelId);
+
+    if (ownerGroup != null) {
+      _removedPanelSizes[panelId] =
+          Size(ownerGroup.width, ownerGroup.height);
+      _removePanelFromGroup(ownerGroup, panelId);
+    } else {
+      _addPanelAsNewGroup(panelId);
+    }
+    _onLayoutChanged();
+  }
+
+  /// 패널이 현재 레이아웃에 존재하는지 확인.
+  bool hasPanel(String panelId) => _findGroupContaining(panelId) != null;
+
+  DockGroup? _findGroupContaining(String panelId) {
+    for (final g in state.groups) {
+      if (g.root.collectPanelIds().contains(panelId)) return g;
+    }
+    return null;
+  }
+
+  void _removePanelFromGroup(DockGroup group, String panelId) {
+    final root = group.root;
+
+    if (root is DockTabbed) {
+      final newTabIds = root.tabIds.where((id) => id != panelId).toList();
+      if (newTabIds.isEmpty) {
+        _setState(DockState(
+          groups: [for (final g in state.groups) if (g.id != group.id) g],
+          viewerSize: state.viewerSize,
+        ));
+        return;
+      }
+      final newIndex = root.activeIndex >= newTabIds.length
+          ? newTabIds.length - 1
+          : root.activeIndex;
+      // 탭 1개 남으면 DockLeaf로 변환 + 헤더리스 재판정
+      final DockNode newRoot = newTabIds.length == 1
+          ? DockLeaf(panelId: newTabIds.first)
+          : DockTabbed(
+              tabIds: newTabIds,
+              activeIndex: newIndex,
+              collapsed: root.collapsed,
+              expandedHeight: root.expandedHeight,
+            );
+      _setState(DockState(
+        groups: [
+          for (final g in state.groups)
+            if (g.id == group.id)
+              g.copyWith(
+                root: newRoot,
+                headerless: _resolveHeaderless(newRoot),
+              )
+            else
+              g,
+        ],
+        viewerSize: state.viewerSize,
+      ));
+      return;
+    }
+
+    if (root is DockLeaf && root.panelId == panelId) {
+      _setState(DockState(
+        groups: [for (final g in state.groups) if (g.id != group.id) g],
+        viewerSize: state.viewerSize,
+      ));
+    }
+  }
+
+  /// 독립 플로팅 그룹으로 패널을 새로 생성.
+  static const double _defaultPanelWidth = 280.0;
+  static const double _defaultPanelHeight = 200.0;
+
+  void _addPanelAsNewGroup(String panelId) {
+    final lastSize = _removedPanelSizes.remove(panelId);
+    final newGroup = DockGroup(
+      id: 'group_${_nextGroupId++}',
+      root: DockLeaf(panelId: panelId),
+      anchorX: AnchorX.center,
+      anchorY: AnchorY.center,
+      offsetX: 0,
+      offsetY: 0,
+      width: lastSize?.width ?? _defaultPanelWidth,
+      height: lastSize?.height ?? _defaultPanelHeight,
+      headerless: _resolveHeaderless(DockLeaf(panelId: panelId)),
+    );
+    _setState(DockState(
+      groups: [...state.groups, newGroup],
+      viewerSize: state.viewerSize,
+      focusedPanelId: panelId,
+    ));
+  }
+
+  /// 노드 내 패널이 1개이고 헤더리스 대상이면 true.
+  ///
+  /// undockTab, undockNode, togglePanel에서 공통 사용.
+  bool _resolveHeaderless(DockNode root) {
+    final ids = root.collectPanelIds();
+    return ids.length == 1 &&
+        ref.read(dockSettingsProvider).isHeaderless(ids.first);
   }
 
   /// 그룹을 독 시스템에서 제거.
