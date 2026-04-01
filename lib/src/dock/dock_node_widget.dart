@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
+import '../models/dock_group.dart';
 import '../models/dock_node.dart';
+import '../providers/dock_node_tree.dart';
 import '../providers/dock_provider.dart';
 import '../theme/dock_theme.dart';
 
@@ -54,11 +56,8 @@ class DockNodeWidget extends ConsumerWidget {
         children,
         ratios,
       ),
-      DockTabbed(:final tabIds, :final activeIndex) => _buildTabbed(
-        tabIds,
-        activeIndex,
-        ref,
-      ),
+      DockTabbed(:final tabIds, :final activeIndex, :final collapsed) =>
+        _buildTabbed(tabIds, activeIndex, ref, collapsed: collapsed),
     };
   }
 
@@ -124,37 +123,62 @@ class DockNodeWidget extends ConsumerWidget {
     );
   }
 
-  Widget _buildTabbed(List<String> tabIds, int activeIndex, WidgetRef ref) {
+  Widget _buildTabbed(
+    List<String> tabIds,
+    int activeIndex,
+    WidgetRef ref, {
+    bool collapsed = false,
+  }) {
     final activePanelId = tabIds[activeIndex];
     return Listener(
       onPointerDown: (_) => _focusPanel(ref, activePanelId),
       behavior: HitTestBehavior.translucent,
       child: LayoutBuilder(
-        builder: (context, constraints) => Stack(
-          children: [
-            Column(
+        builder: (context, constraints) {
+          final cfg = DockTheme.of(context).config;
+
+          if (collapsed) {
+            // 접힌 상태: 탭 바 + 하단 여백만 표시
+            return Column(
               children: [
-                SizedBox(
-                  height: DockTheme.of(context).config.groupHeaderHeight +
-                      DockTheme.of(context).config.tabBarHeight,
+                _DraggableTabBar(
+                  tabIds: tabIds,
+                  activeIndex: activeIndex,
+                  dragContext: dragContext,
+                  nodePath: nodePath,
+                  nodeSize: Size(constraints.maxWidth, constraints.maxHeight),
+                  collapsed: true,
                 ),
-                Expanded(child: DockTheme.of(context).panelDelegate.buildPanel(activePanelId)),
+                SizedBox(height: cfg.groupHeaderHeight),
               ],
-            ),
-            Positioned(
-              top: 0,
-              left: 0,
-              right: 0,
-              child: _DraggableTabBar(
-                tabIds: tabIds,
-                activeIndex: activeIndex,
-                dragContext: dragContext,
-                nodePath: nodePath,
-                nodeSize: Size(constraints.maxWidth, constraints.maxHeight),
+            );
+          }
+
+          return Stack(
+            children: [
+              Column(
+                children: [
+                  SizedBox(
+                    height: cfg.groupHeaderHeight + cfg.tabBarHeight,
+                  ),
+                  Expanded(child: DockTheme.of(context).panelDelegate.buildPanel(activePanelId)),
+                ],
               ),
-            ),
-          ],
-        ),
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                child: _DraggableTabBar(
+                  tabIds: tabIds,
+                  activeIndex: activeIndex,
+                  dragContext: dragContext,
+                  nodePath: nodePath,
+                  nodeSize: Size(constraints.maxWidth, constraints.maxHeight),
+                ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -222,20 +246,42 @@ class _DraggableSplitSeparatorState
     extends ConsumerState<_DraggableSplitSeparator> {
   bool _isHovered = false;
 
+  /// 인접 자식 중 하나라도 접혀 있으면 드래그 차단.
+  bool _hasCollapsedAdjacent(DockGroup group) {
+    final splitNode = getNodeAt(group.root, widget.splitPath);
+    if (splitNode is! DockSplit) return false;
+    final i = widget.separatorIndex;
+    return splitNode.children[i].isCollapsed ||
+        splitNode.children[i + 1].isCollapsed;
+  }
+
   @override
   Widget build(BuildContext context) {
     final isHorizontal = widget.axis == SplitAxis.horizontal;
     final dc = widget.dragContext;
 
+    // 인접 자식이 접혀 있으면 드래그 불가
+    final bool disabled;
+    if (dc != null) {
+      final group = ref.watch(dockProvider.select(
+        (s) => s.groups.where((g) => g.id == dc.groupId).firstOrNull,
+      ));
+      disabled = group != null && _hasCollapsedAdjacent(group);
+    } else {
+      disabled = false;
+    }
+
     return MouseRegion(
-      cursor: isHorizontal
-          ? SystemMouseCursors.resizeColumn
-          : SystemMouseCursors.resizeRow,
+      cursor: disabled
+          ? SystemMouseCursors.basic
+          : isHorizontal
+              ? SystemMouseCursors.resizeColumn
+              : SystemMouseCursors.resizeRow,
       onEnter: (_) => setState(() => _isHovered = true),
       onExit: (_) => setState(() => _isHovered = false),
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onPanUpdate: dc == null
+        onPanUpdate: dc == null || disabled
             ? null
             : (details) {
                 final group = ref
@@ -348,6 +394,7 @@ class _TabItem extends StatelessWidget {
   final bool isReordering;
   final double overlayProgress;
   final TextTheme textTheme;
+  final bool collapsed;
 
   const _TabItem({
     required this.label,
@@ -355,6 +402,7 @@ class _TabItem extends StatelessWidget {
     this.isReordering = false,
     this.overlayProgress = 0.0,
     required this.textTheme,
+    this.collapsed = false,
   });
 
   static const double _activeTabRadius = 6.0;
@@ -369,16 +417,34 @@ class _TabItem extends StatelessWidget {
       overlayProgress,
     )!;
 
+    // 접힌 상태: 활성 탭은 상하 모두 둥근 모서리
+    final BorderRadius? borderRadius;
+    if (!isActive) {
+      borderRadius = null;
+    } else if (collapsed) {
+      borderRadius = BorderRadius.circular(_activeTabRadius);
+    } else {
+      borderRadius = const BorderRadius.only(
+        topLeft: Radius.circular(_activeTabRadius),
+        topRight: Radius.circular(_activeTabRadius),
+      );
+    }
+
+    // 접힌 상태: bg0으로 그룹 배경(panelBackground)과 구분
+    final Color? bgColor;
+    if (!isActive) {
+      bgColor = null;
+    } else if (collapsed) {
+      bgColor = cs.bg0;
+    } else {
+      bgColor = activeColor;
+    }
+
     final tab = Container(
       padding: const EdgeInsets.symmetric(horizontal: 12),
       decoration: BoxDecoration(
-        color: isActive ? activeColor : null,
-        borderRadius: isActive
-            ? const BorderRadius.only(
-                topLeft: Radius.circular(_activeTabRadius),
-                topRight: Radius.circular(_activeTabRadius),
-              )
-            : null,
+        color: bgColor,
+        borderRadius: borderRadius,
       ),
       alignment: Alignment.center,
       child: Text(

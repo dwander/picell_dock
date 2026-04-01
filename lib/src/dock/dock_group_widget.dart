@@ -228,12 +228,14 @@ class _DockGroupWidgetState extends ConsumerState<DockGroupWidget>
                               ),
                             ),
                           ),
-                        DockResizeHandles(
-                          groupId: group.id,
-                          viewerSize: viewerSize,
-                          stackKey: widget.stackKey,
-                          dockedEdge: group.dockedEdge,
-                        ),
+                        // 플로팅 그룹에서 모든 패널이 접혀 있으면 리사이즈 불가
+                        if (group.dockedEdge != null || !group.root.isAllCollapsed)
+                          DockResizeHandles(
+                            groupId: group.id,
+                            viewerSize: viewerSize,
+                            stackKey: widget.stackKey,
+                            dockedEdge: group.dockedEdge,
+                          ),
                       ],
                     ),
                   ),

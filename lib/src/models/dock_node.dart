@@ -79,24 +79,39 @@ class DockTabbed extends DockNode {
   final List<String> tabIds;
   final int activeIndex;
 
-  const DockTabbed({required this.tabIds, this.activeIndex = 0})
-    : assert(tabIds.length > 0), // ignore: prefer_is_empty — const constructor
-      assert(activeIndex >= 0 && activeIndex < tabIds.length);
+  /// 패널이 접혀 있는지 여부.
+  final bool collapsed;
+
+  /// 접히기 전 원래 픽셀 높이 (접힌 상태에서만 유효).
+  /// 플로팅 그룹에서 펼칠 때 원래 높이를 복원하는 데 사용.
+  final double? expandedHeight;
+
+  const DockTabbed({
+    required this.tabIds,
+    this.activeIndex = 0,
+    this.collapsed = false,
+    this.expandedHeight,
+  }) : assert(tabIds.length > 0), // ignore: prefer_is_empty — const constructor
+       assert(activeIndex >= 0 && activeIndex < tabIds.length);
 
   @override
   Map<String, dynamic> toJson() => {
     'type': 'tabbed',
     'tabIds': tabIds,
     'activeIndex': activeIndex,
+    if (collapsed) 'collapsed': true,
+    if (expandedHeight != null) 'expandedHeight': expandedHeight,
   };
 
   factory DockTabbed.fromJson(Map<String, dynamic> json) => DockTabbed(
     tabIds: [for (final id in json['tabIds'] as List) id as String],
     activeIndex: json['activeIndex'] as int? ?? 0,
+    collapsed: json['collapsed'] as bool? ?? false,
+    expandedHeight: (json['expandedHeight'] as num?)?.toDouble(),
   );
 
   @override
-  List<Object?> get props => [tabIds, activeIndex];
+  List<Object?> get props => [tabIds, activeIndex, collapsed, expandedHeight];
 }
 
 /// DockNode 트리 유틸리티.
@@ -111,4 +126,17 @@ extension DockNodeUtils on DockNode {
       DockTabbed(:final tabIds) => [...tabIds],
     };
   }
+
+  /// 이 노드가 접혀 있는지 여부.
+  bool get isCollapsed => switch (this) {
+    DockTabbed(:final collapsed) => collapsed,
+    _ => false,
+  };
+
+  /// 트리 내 모든 리프/탭 노드가 접혀 있는지 여부.
+  bool get isAllCollapsed => switch (this) {
+    DockLeaf() => false,
+    DockTabbed(:final collapsed) => collapsed,
+    DockSplit(:final children) => children.every((c) => c.isAllCollapsed),
+  };
 }

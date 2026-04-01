@@ -8,6 +8,7 @@ class _DraggableTabBar extends ConsumerStatefulWidget {
   final DockDragContext? dragContext;
   final List<int> nodePath;
   final Size nodeSize;
+  final bool collapsed;
 
   const _DraggableTabBar({
     required this.tabIds,
@@ -15,6 +16,7 @@ class _DraggableTabBar extends ConsumerStatefulWidget {
     this.dragContext,
     this.nodePath = const [],
     this.nodeSize = Size.zero,
+    this.collapsed = false,
   });
 
   @override
@@ -387,6 +389,20 @@ class _DraggableTabBarState extends ConsumerState<_DraggableTabBar>
     );
   }
 
+  /// 엣지 패널에서 펼쳐진 패널이 자신뿐인지 확인.
+  bool _isLastExpandedInEdge(WidgetRef ref, DockDragContext dc) {
+    final group = ref.read(dockProvider).groups
+        .where((g) => g.id == dc.groupId).firstOrNull;
+    if (group == null) return false;
+    final root = group.root;
+    if (root is! DockSplit) return false;
+    int expandedCount = 0;
+    for (final child in root.children) {
+      if (!child.isCollapsed) expandedCount++;
+    }
+    return expandedCount <= 1;
+  }
+
   @override
   Widget build(BuildContext context) {
     final dc = widget.dragContext;
@@ -394,6 +410,7 @@ class _DraggableTabBarState extends ConsumerState<_DraggableTabBar>
     final dockTheme = DockTheme.of(context);
     final cs = dockTheme.colorScheme;
     final cfg = dockTheme.config;
+    final isCollapsed = widget.collapsed;
     final overlayEnabled = dockTheme.displaySettings.showHeaderOverlay;
     final dockedEdge = dc == null
         ? null
@@ -407,7 +424,7 @@ class _DraggableTabBarState extends ConsumerState<_DraggableTabBar>
         const DockOverlayLayout();
     final showFloatButton =
         dockedEdge != null && widget.nodePath.every((i) => i == 0);
-    final canShowOverlay =
+    final canShowOverlay = !isCollapsed &&
         overlayEnabled && dc != null && (panelLayout.isNotEmpty || showFloatButton);
     final isDragging = _draggingTabIndex != null;
 
@@ -431,12 +448,12 @@ class _DraggableTabBarState extends ConsumerState<_DraggableTabBar>
               return Container(
                 height: cfg.groupHeaderHeight + cfg.tabBarHeight,
                 padding: EdgeInsets.only(top: cfg.groupHeaderHeight),
-                color: cs.bg0,
+                color: isCollapsed ? null : cs.bg0,
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    // 좌측 고정 여백: 드래그 중엔 역라운드 숨김
-                    (!isDragging && widget.activeIndex == 0)
+                    // 좌측 고정 여백: 접힌 상태/드래그 중엔 역라운드 숨김
+                    (!isDragging && !isCollapsed && widget.activeIndex == 0)
                         ? _activeTabSpacer(curveOnRight: true, tabColor: activeColor, bgColor: cs.bg0)
                         : _tabSpacer(),
                     for (int i = 0; i < widget.tabIds.length; i++) ...[
@@ -482,11 +499,12 @@ class _DraggableTabBarState extends ConsumerState<_DraggableTabBar>
                                 isDragging && _draggingTabIndex == i,
                             overlayProgress: progress,
                             textTheme: textTheme,
+                            collapsed: isCollapsed,
                           ),
                         ),
                       ),
-                      // 탭 간 스페이서: 드래그 중엔 역라운드 숨김
-                      if (isDragging)
+                      // 탭 간 스페이서: 접힌 상태/드래그 중엔 역라운드 숨김
+                      if (isDragging || isCollapsed)
                         _tabSpacer()
                       else if (i == widget.activeIndex)
                         _activeTabSpacer(curveOnRight: false, tabColor: activeColor, bgColor: cs.bg0)
@@ -495,7 +513,7 @@ class _DraggableTabBarState extends ConsumerState<_DraggableTabBar>
                       else
                         _tabSpacer(),
                     ],
-                    // 남은 공간: 드래그로 그룹 이동 + 우측 액션 버튼
+                    // 남은 공간: 드래그로 그룹 이동 + 접기 버튼
                     Expanded(
                       child: GestureDetector(
                         onPanStart: dc == null ? null : _onGroupDragStart,
@@ -505,7 +523,28 @@ class _DraggableTabBarState extends ConsumerState<_DraggableTabBar>
                           cursor: SystemMouseCursors.grab,
                           child: Align(
                             alignment: Alignment.centerRight,
-                            child: const SizedBox.shrink(),
+                            // 접기 버튼 숨김 조건:
+                            // - 엣지 패널의 루트 노드(스플릿 아닌 단일 패널)
+                            // - 엣지 패널에서 펼쳐진 패널이 자신뿐 (마지막 1개는 접기 불가)
+                            child: dc == null ||
+                                    (dockedEdge != null && widget.nodePath.isEmpty) ||
+                                    (dockedEdge != null && !isCollapsed && _isLastExpandedInEdge(ref, dc))
+                                ? const SizedBox.shrink()
+                                : Padding(
+                                    padding: const EdgeInsets.only(right: 4),
+                                    child: _HeaderActionButton(
+                                      icon: isCollapsed
+                                          ? PhosphorIconsRegular.caretDown
+                                          : PhosphorIconsRegular.caretUp,
+                                      tooltip: isCollapsed ? '펼치기' : '접기',
+                                      onPressed: () => ref
+                                          .read(dockProvider.notifier)
+                                          .toggleCollapse(
+                                            dc.groupId,
+                                            nodePath: widget.nodePath,
+                                          ),
+                                    ),
+                                  ),
                           ),
                         ),
                       ),

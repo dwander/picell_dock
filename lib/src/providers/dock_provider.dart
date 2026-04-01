@@ -1468,6 +1468,317 @@ class DockNotifier extends Notifier<DockState> {
     );
   }
 
+  // ── 패널 접기/펼치기 ──
+
+  /// 접힌 패널의 높이: 상단 여백 + 탭 바 + 하단 여백.
+  double get _collapsedNodeHeight =>
+      _config.groupHeaderHeight * 2 + _config.tabBarHeight;
+
+  /// 패널 노드의 접힘 상태를 토글.
+  ///
+  /// 플로팅 그룹: 접힌 만큼 그룹 높이가 줄어들고, 펼치면 복원.
+  /// 엣지 패널: 여유 공간을 가장 큰 패널이 흡수 (기존 리사이즈 로직과 동일).
+  void toggleCollapse(
+    String groupId, {
+    required List<int> nodePath,
+  }) {
+    final group = _findGroup(state.groups, groupId);
+    if (group == null) return;
+    final vs = state.viewerSize;
+
+    final node = getNodeAt(group.root, nodePath);
+    final isEdge = group.dockedEdge != null;
+
+    // Leaf → Tabbed 변환 (접기 상태를 저장하기 위해)
+    final DockTabbed tabbed;
+    if (node is DockTabbed) {
+      tabbed = node;
+    } else if (node is DockLeaf) {
+      tabbed = DockTabbed(tabIds: [node.panelId]);
+    } else {
+      return; // Split 노드는 접기 불가
+    }
+
+    final nowCollapsing = !tabbed.collapsed;
+    final collapsedH = _collapsedNodeHeight;
+
+    if (isEdge) {
+      // ── 엣지 패널: 그룹 높이 고정, Split ratios 조정 ──
+      _toggleCollapseEdge(
+        group, nodePath, tabbed, nowCollapsing, collapsedH, vs,
+      );
+    } else {
+      // ── 플로팅 그룹: 그룹 높이 변동 ──
+      _toggleCollapseFloating(
+        group, nodePath, tabbed, nowCollapsing, collapsedH, vs,
+      );
+    }
+    _onLayoutChanged();
+  }
+
+  /// 플로팅 그룹의 접기/펼치기.
+  void _toggleCollapseFloating(
+    DockGroup group,
+    List<int> nodePath,
+    DockTabbed tabbed,
+    bool collapsing,
+    double collapsedH,
+    Size vs,
+  ) {
+    final groupRect = state.displayRects[group.id] ??
+        Rect.fromLTWH(
+          group.absoluteX(vs.width),
+          group.absoluteY(vs.height),
+          group.width,
+          group.height,
+        );
+
+    if (nodePath.isEmpty) {
+      // 루트 노드가 직접 Tabbed인 경우
+      final double newHeight;
+      final DockNode newNode;
+      if (collapsing) {
+        newNode = DockTabbed(
+          tabIds: tabbed.tabIds,
+          activeIndex: tabbed.activeIndex,
+          collapsed: true,
+          expandedHeight: groupRect.height,
+        );
+        newHeight = collapsedH;
+      } else {
+        newNode = DockTabbed(
+          tabIds: tabbed.tabIds,
+          activeIndex: tabbed.activeIndex,
+        );
+        newHeight = tabbed.expandedHeight ?? groupRect.height;
+      }
+      final updated = group
+          .copyWith(root: newNode, height: newHeight)
+          .updateFromAbsolute(
+            groupRect.left,
+            groupRect.top,
+            vs.width,
+            vs.height,
+          );
+      _setState(DockState(
+        groups: [
+          for (final g in state.groups)
+            if (g.id == group.id) updated else g,
+        ],
+        viewerSize: vs,
+      ));
+      return;
+    }
+
+    // Split 내부의 노드인 경우
+    // 세로 Split의 자식이면 그룹 높이도 변동
+    final parentPath = nodePath.sublist(0, nodePath.length - 1);
+    final parent = getNodeAt(group.root, parentPath);
+    final childIndex = nodePath.last;
+
+    // 노드의 현재 픽셀 높이 계산
+    final double nodePixelH;
+    if (parent is DockSplit && parent.axis == SplitAxis.vertical) {
+      nodePixelH = groupRect.height * parent.ratios[childIndex];
+    } else {
+      nodePixelH = groupRect.height;
+    }
+
+    final DockTabbed newTabbed;
+    if (collapsing) {
+      newTabbed = DockTabbed(
+        tabIds: tabbed.tabIds,
+        activeIndex: tabbed.activeIndex,
+        collapsed: true,
+        expandedHeight: nodePixelH,
+      );
+    } else {
+      newTabbed = DockTabbed(
+        tabIds: tabbed.tabIds,
+        activeIndex: tabbed.activeIndex,
+      );
+    }
+
+    var newRoot = replaceNodeAt(group.root, nodePath, newTabbed);
+
+    // 세로 Split 안이면 ratios 재계산 + 그룹 높이 변동
+    if (parent is DockSplit && parent.axis == SplitAxis.vertical) {
+      // 자식별 절대 높이 계산: 접힌 형제는 collapsedH 고정, 나머지는 현재 크기 유지
+      final sizes = <double>[];
+      for (int i = 0; i < parent.ratios.length; i++) {
+        if (i == childIndex) {
+          sizes.add(collapsing ? collapsedH : (tabbed.expandedHeight ?? nodePixelH));
+        } else {
+          final sibling = parent.children[i];
+          if (sibling.isCollapsed) {
+            sizes.add(collapsedH);
+          } else {
+            sizes.add(groupRect.height * parent.ratios[i]);
+          }
+        }
+      }
+      final newGroupH = sizes.fold(0.0, (a, b) => a + b);
+      final totalSize = sizes.fold(0.0, (a, b) => a + b);
+      final newRatios = [for (final s in sizes) s / totalSize];
+      final newSplit = DockSplit(
+        axis: parent.axis,
+        children: [
+          for (int i = 0; i < parent.children.length; i++)
+            i == childIndex ? newTabbed : parent.children[i],
+        ],
+        ratios: newRatios,
+      );
+      newRoot = replaceNodeAt(group.root, parentPath, newSplit);
+
+      final updated = group
+          .copyWith(root: newRoot, height: newGroupH)
+          .updateFromAbsolute(
+            groupRect.left,
+            groupRect.top,
+            vs.width,
+            vs.height,
+          );
+      _setState(DockState(
+        groups: [
+          for (final g in state.groups)
+            if (g.id == group.id) updated else g,
+        ],
+        viewerSize: vs,
+      ));
+    } else {
+      // 가로 Split 또는 깊은 구조: 노드만 교체 (높이 변동 없음)
+      final updated = group.copyWith(root: newRoot);
+      _setState(DockState(
+        groups: [
+          for (final g in state.groups)
+            if (g.id == group.id) updated else g,
+        ],
+        viewerSize: vs,
+      ));
+    }
+  }
+
+  /// 엣지 패널의 접기/펼치기.
+  ///
+  /// 그룹 높이는 뷰포트 높이로 고정. 여유 공간을 가장 큰 패널이 흡수.
+  void _toggleCollapseEdge(
+    DockGroup group,
+    List<int> nodePath,
+    DockTabbed tabbed,
+    bool collapsing,
+    double collapsedH,
+    Size vs,
+  ) {
+    final groupH = vs.height;
+
+    if (nodePath.isEmpty) {
+      // 엣지 패널의 루트 노드 — 접기만 표시 (높이 변동 없음)
+      final newNode = DockTabbed(
+        tabIds: tabbed.tabIds,
+        activeIndex: tabbed.activeIndex,
+        collapsed: collapsing,
+        expandedHeight: collapsing ? groupH : null,
+      );
+      _setState(DockState(
+        groups: [
+          for (final g in state.groups)
+            if (g.id == group.id) g.copyWith(root: newNode) else g,
+        ],
+        viewerSize: vs,
+      ));
+      return;
+    }
+
+    // Split 내부
+    final parentPath = nodePath.sublist(0, nodePath.length - 1);
+    final parent = getNodeAt(group.root, parentPath);
+    final childIndex = nodePath.last;
+
+    if (parent is! DockSplit || parent.axis != SplitAxis.vertical) {
+      // 가로 Split: 노드만 교체
+      final newTabbed = DockTabbed(
+        tabIds: tabbed.tabIds,
+        activeIndex: tabbed.activeIndex,
+        collapsed: collapsing,
+        expandedHeight: collapsing ? groupH : null,
+      );
+      final newRoot = replaceNodeAt(group.root, nodePath, newTabbed);
+      _setState(DockState(
+        groups: [
+          for (final g in state.groups)
+            if (g.id == group.id) g.copyWith(root: newRoot) else g,
+        ],
+        viewerSize: vs,
+      ));
+      return;
+    }
+
+    // 세로 Split: 가장 큰 패널이 여유 공간 흡수
+    final nodePixelH = groupH * parent.ratios[childIndex];
+    final double targetH;
+    final double? storedExpandedH;
+
+    if (collapsing) {
+      targetH = collapsedH;
+      storedExpandedH = nodePixelH;
+    } else {
+      targetH = tabbed.expandedHeight ?? nodePixelH;
+      storedExpandedH = null;
+    }
+
+    final newTabbed = DockTabbed(
+      tabIds: tabbed.tabIds,
+      activeIndex: tabbed.activeIndex,
+      collapsed: collapsing,
+      expandedHeight: storedExpandedH,
+    );
+
+    // 절대 크기 계산 → 대상 변경 → 가장 큰 비접힌 패널이 delta 흡수
+    final sizes = [
+      for (int i = 0; i < parent.ratios.length; i++)
+        groupH * parent.ratios[i],
+    ];
+    final delta = sizes[childIndex] - targetH;
+    sizes[childIndex] = targetH;
+
+    // 가장 큰 비접힌 자식 찾기
+    int largestIdx = -1;
+    double largestSize = 0;
+    for (int i = 0; i < parent.children.length; i++) {
+      if (i == childIndex) continue;
+      final child = parent.children[i];
+      final isChildCollapsed = child.isCollapsed;
+      if (!isChildCollapsed && sizes[i] > largestSize) {
+        largestSize = sizes[i];
+        largestIdx = i;
+      }
+    }
+    if (largestIdx == -1) largestIdx = childIndex == 0 ? 1 : 0;
+
+    sizes[largestIdx] = (sizes[largestIdx] + delta)
+        .clamp(_config.groupMinHeight, double.infinity);
+
+    final totalSize = sizes.fold(0.0, (a, b) => a + b);
+    final newRatios = [for (final s in sizes) s / totalSize];
+
+    final newSplit = DockSplit(
+      axis: parent.axis,
+      children: [
+        for (int i = 0; i < parent.children.length; i++)
+          i == childIndex ? newTabbed : parent.children[i],
+      ],
+      ratios: newRatios,
+    );
+    final newRoot = replaceNodeAt(group.root, parentPath, newSplit);
+    _setState(DockState(
+      groups: [
+        for (final g in state.groups)
+          if (g.id == group.id) g.copyWith(root: newRoot) else g,
+      ],
+      viewerSize: vs,
+    ));
+  }
+
   /// 그룹의 핀 고정 상태를 토글.
   void togglePin(String groupId) {
     final group = _findGroup(state.groups, groupId);
