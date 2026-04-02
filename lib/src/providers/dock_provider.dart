@@ -1429,14 +1429,15 @@ class DockNotifier extends Notifier<DockState> {
     if (parent is! DockSplit) return null;
 
     final groupRect = _groupRect(group);
-    final childRects = calcDirectChildRects(parent, groupRect);
+    // 부모가 내부 노드이면 실제 부모 rect 계산, 루트이면 그룹 rect 사용
+    final parentRect = parentPath.isEmpty
+        ? groupRect
+        : calcNodeRectAt(group.root, groupRect, parentPath);
+    final childRects = calcDirectChildRects(parent, parentRect);
 
     final removedNode = parent.children[childIndex];
     final newParent = removeChildAt(parent, childIndex);
     final newRoot = replaceNodeAt(group.root, parentPath, newParent);
-
-    // 남는 쪽의 크기를 계산 — 나머지 자식들의 영역
-    final remainingRect = calcRemainingRect(parent, groupRect, childIndex);
 
     final maxZ = _maxZOrder();
 
@@ -1466,20 +1467,31 @@ class DockNotifier extends Notifier<DockState> {
       headerless: _resolveHeaderless(removedNode),
     ).updateFromAbsolute(absX, absY, vs.width, vs.height);
 
-    // 남는 그룹도 크기를 축소 + 헤더리스 재판정
-    final updatedGroup = group
-        .copyWith(
-          root: newRoot,
-          width: remainingRect.width,
-          height: remainingRect.height,
-          headerless: _resolveHeaderless(newRoot),
-        )
-        .updateFromAbsolute(
-          remainingRect.left,
-          remainingRect.top,
-          vs.width,
-          vs.height,
-        );
+    // 남는 그룹 갱신:
+    // - 루트 직속 자식 분리 → 남는 영역으로 크기 축소
+    // - 내부 노드 분리 → 그룹 크기 유지 (내부 레이아웃만 재배치)
+    final DockGroup updatedGroup;
+    if (parentPath.isEmpty) {
+      final remainingRect = calcRemainingRect(parent, groupRect, childIndex);
+      updatedGroup = group
+          .copyWith(
+            root: newRoot,
+            width: remainingRect.width,
+            height: remainingRect.height,
+            headerless: _resolveHeaderless(newRoot),
+          )
+          .updateFromAbsolute(
+            remainingRect.left,
+            remainingRect.top,
+            vs.width,
+            vs.height,
+          );
+    } else {
+      updatedGroup = group.copyWith(
+        root: newRoot,
+        headerless: _resolveHeaderless(newRoot),
+      );
+    }
 
     _setState(
       DockState(
