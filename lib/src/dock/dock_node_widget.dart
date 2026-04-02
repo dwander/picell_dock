@@ -70,6 +70,7 @@ class DockNodeWidget extends ConsumerWidget {
       return _HeaderlessFrame(
         panelId: panelId,
         dragContext: dragContext,
+        nodePath: nodePath,
       );
     }
     // Leaf를 탭 1개짜리 Tabbed와 동일하게 렌더링 → 디자인 + UX 통일

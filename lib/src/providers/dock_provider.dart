@@ -945,22 +945,18 @@ class DockNotifier extends Notifier<DockState> {
 
   static const double _dockDetectDistance = 30.0;
 
-  /// 그룹의 절대 좌표 rect를 계산.
-  /// 앵커 위치에 따라 뷰포트 중앙 방향으로 분리 오프셋을 계산.
-  static const double _undockDistance = 20.0;
+  /// 노드 rect의 중심에서 뷰포트 중심 대비 바깥 방향으로 분리 오프셋 계산.
+  static const double _undockDistance = 10.0;
 
-  static Offset _undockOffset(DockGroup group, Size viewerSize) {
-    final dx = switch (group.anchorX) {
-      AnchorX.left => _undockDistance,
-      AnchorX.center => 0.0,
-      AnchorX.right => -_undockDistance,
-    };
-    final dy = switch (group.anchorY) {
-      AnchorY.top => _undockDistance,
-      AnchorY.center => 0.0,
-      AnchorY.bottom => -_undockDistance,
-    };
-    return Offset(dx, dy);
+  static Offset _undockOffset(Rect nodeRect, Size viewerSize) {
+    final vpCenter = Offset(viewerSize.width / 2, viewerSize.height / 2);
+    final diff = nodeRect.center - vpCenter;
+    if (diff.distance < 1.0) {
+      // 뷰포트 정중앙이면 우측으로
+      return const Offset(_undockDistance, 0);
+    }
+    final normalized = diff / diff.distance;
+    return normalized * _undockDistance;
   }
 
   Rect _groupRect(DockGroup g) {
@@ -1290,7 +1286,7 @@ class DockNotifier extends Notifier<DockState> {
       absX = cursorInStack.dx - nodeRect.width / 2;
       absY = cursorInStack.dy - 10;
     } else {
-      final offset = _undockOffset(group, vs);
+      final offset = _undockOffset(nodeRect, vs);
       absX = nodeRect.left + offset.dx;
       absY = nodeRect.top + offset.dy;
     }
@@ -1363,7 +1359,7 @@ class DockNotifier extends Notifier<DockState> {
       absX = cursorInStack.dx - removedRect.width / 2;
       absY = cursorInStack.dy - 10;
     } else {
-      final offset = _undockOffset(group, vs);
+      final offset = _undockOffset(removedRect, vs);
       absX = removedRect.left + offset.dx;
       absY = removedRect.top + offset.dy;
     }

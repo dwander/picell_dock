@@ -10,10 +10,12 @@ part of 'dock_node_widget.dart';
 class _HeaderlessFrame extends ConsumerStatefulWidget {
   final String panelId;
   final DockDragContext? dragContext;
+  final List<int> nodePath;
 
   const _HeaderlessFrame({
     required this.panelId,
     this.dragContext,
+    this.nodePath = const [],
   });
 
   @override
@@ -103,8 +105,21 @@ class _HeaderlessFrameState extends ConsumerState<_HeaderlessFrame>
                 .firstOrNull
                 ?.dockedEdge,
           ));
+    final isInSplit = widget.nodePath.isNotEmpty;
     final rightButtons = [
       ...panelLayout.right,
+      if (isInSplit && dc != null)
+        _HeaderActionButton(
+          icon: PhosphorIconsRegular.linkBreak,
+          tooltip: '패널 분리',
+          onPressed: () => ref.read(dockProvider.notifier).undockNode(
+            sourceGroupId: dc.groupId,
+            nodePath: widget.nodePath,
+          ),
+          buttonSize: 24.0,
+          iconSize: 18.0,
+          flat: true,
+        ),
       if (dockedEdge != null)
         _HeaderActionButton(
           icon: PhosphorIconsRegular.pictureInpicture,
