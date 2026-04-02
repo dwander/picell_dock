@@ -1034,20 +1034,28 @@ class DockNotifier extends Notifier<DockState> {
 
       // 커서가 타겟 안에 있으면 → 내부 노드 단위 도킹 감지
       if (targetRect.contains(anchor)) {
-        final centerZone = targetRect.deflate(_dockDetectDistance);
-        if (centerZone.width > 0 &&
-            centerZone.height > 0 &&
-            centerZone.contains(anchor)) {
-          final nodeRects = calcNodeRects(target.root, targetRect, const []);
-          for (final nr in nodeRects) {
-            if (nr.rect.deflate(_dockDetectDistance).contains(anchor)) {
-              return DockPreview(
-                targetGroupId: target.id,
-                edge: DockEdge.center,
-                highlightRect: nr.rect,
-                nodePath: nr.path,
-              );
-            }
+        final nodeRects = calcNodeRects(target.root, targetRect, const []);
+        for (final nr in nodeRects) {
+          if (!nr.rect.contains(anchor)) continue;
+          final inner = nr.rect.deflate(_dockDetectDistance);
+          // 노드 중심 → 탭 도킹
+          if (inner.width > 0 && inner.height > 0 && inner.contains(anchor)) {
+            return DockPreview(
+              targetGroupId: target.id,
+              edge: DockEdge.center,
+              highlightRect: nr.rect,
+              nodePath: nr.path,
+            );
+          }
+          // 노드 외곽 → 엣지 도킹
+          final edge = _nearestEdge(anchor, nr.rect, allowH);
+          if (edge != null) {
+            return DockPreview(
+              targetGroupId: target.id,
+              edge: edge,
+              highlightRect: _calcHighlightRect(nr.rect, edge),
+              nodePath: nr.path,
+            );
           }
         }
         continue;
@@ -1076,6 +1084,25 @@ class DockNotifier extends Notifier<DockState> {
     }
 
     return best;
+  }
+
+  /// 커서에서 가장 가까운 엣지 방향 반환.
+  static DockEdge? _nearestEdge(Offset cursor, Rect rect, bool allowH) {
+    final distances = <DockEdge, double>{
+      if (allowH) DockEdge.left: (cursor.dx - rect.left).abs(),
+      if (allowH) DockEdge.right: (rect.right - cursor.dx).abs(),
+      DockEdge.top: (cursor.dy - rect.top).abs(),
+      DockEdge.bottom: (rect.bottom - cursor.dy).abs(),
+    };
+    DockEdge? nearest;
+    double best = double.infinity;
+    for (final e in distances.entries) {
+      if (e.value < best) {
+        best = e.value;
+        nearest = e.key;
+      }
+    }
+    return nearest;
   }
 
   // ── 뷰포트 엣지 감지 ──
@@ -1448,6 +1475,32 @@ class DockNotifier extends Notifier<DockState> {
         ? SplitAxis.horizontal
         : SplitAxis.vertical;
     final sourceFirst = (edge == DockEdge.left || edge == DockEdge.top);
+
+    // ── 내부 노드 도킹: 그룹 크기 유지, 내부에서만 Split ──
+    if (nodePath.isNotEmpty) {
+      final targetNode = getNodeAt(target.root, nodePath);
+      final newSplit = DockSplit(
+        axis: axis,
+        children: sourceFirst
+            ? [source.root, targetNode]
+            : [targetNode, source.root],
+        ratios: const [0.5, 0.5],
+      );
+      final newRoot = replaceNodeAt(target.root, nodePath, newSplit);
+      final mergedGroup = _clampToViewport(
+        target.copyWith(root: newRoot, headerless: false),
+        vs,
+      );
+      _setState(DockState(
+        groups: [
+          for (final g in state.groups)
+            if (g.id == targetId) mergedGroup else if (g.id != sourceId) g,
+        ],
+        viewerSize: vs,
+      ));
+      _onLayoutChanged();
+      return;
+    }
 
     // ── 그룹 루트 도킹: 그룹 크기 확장 ──
     final srcRect = _groupRect(source);
