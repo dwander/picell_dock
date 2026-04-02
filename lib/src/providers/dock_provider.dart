@@ -1984,50 +1984,79 @@ class DockNotifier extends Notifier<DockState> {
   }
 
   void _removePanelFromGroup(DockGroup group, String panelId) {
-    final root = group.root;
+    final newRoot = _removePanel(group.root, panelId);
 
-    if (root is DockTabbed) {
-      final newTabIds = root.tabIds.where((id) => id != panelId).toList();
-      if (newTabIds.isEmpty) {
-        _setState(DockState(
-          groups: [for (final g in state.groups) if (g.id != group.id) g],
-          viewerSize: state.viewerSize,
-        ));
-        return;
-      }
-      final newIndex = root.activeIndex >= newTabIds.length
-          ? newTabIds.length - 1
-          : root.activeIndex;
-      // 탭 1개 남으면 DockLeaf로 변환 + 헤더리스 재판정
-      final DockNode newRoot = newTabIds.length == 1
-          ? DockLeaf(panelId: newTabIds.first)
-          : DockTabbed(
-              tabIds: newTabIds,
-              activeIndex: newIndex,
-              collapsed: root.collapsed,
-              expandedHeight: root.expandedHeight,
-            );
+    // 루트 자체가 제거 대상 → 그룹 삭제
+    if (newRoot == null) {
       _setState(DockState(
-        groups: [
-          for (final g in state.groups)
-            if (g.id == group.id)
-              g.copyWith(
-                root: newRoot,
-                headerless: _resolveHeaderless(newRoot),
-              )
-            else
-              g,
-        ],
+        groups: [for (final g in state.groups) if (g.id != group.id) g],
         viewerSize: state.viewerSize,
       ));
       return;
     }
 
-    if (root is DockLeaf && root.panelId == panelId) {
-      _setState(DockState(
-        groups: [for (final g in state.groups) if (g.id != group.id) g],
-        viewerSize: state.viewerSize,
-      ));
+    _setState(DockState(
+      groups: [
+        for (final g in state.groups)
+          if (g.id == group.id)
+            g.copyWith(
+              root: newRoot,
+              headerless: _resolveHeaderless(newRoot),
+            )
+          else
+            g,
+      ],
+      viewerSize: state.viewerSize,
+    ));
+  }
+
+  /// 트리에서 panelId를 재귀적으로 제거. null이면 노드 전체 삭제.
+  DockNode? _removePanel(DockNode node, String panelId) {
+    switch (node) {
+      case DockLeaf() when node.panelId == panelId:
+        return null;
+
+      case DockTabbed(:final tabIds, :final activeIndex, :final collapsed, :final expandedHeight):
+        final newTabIds = tabIds.where((id) => id != panelId).toList();
+        if (newTabIds.length == tabIds.length) return node; // 미포함
+        if (newTabIds.isEmpty) return null;
+        if (newTabIds.length == 1) return DockLeaf(panelId: newTabIds.first);
+        final newIndex = activeIndex >= newTabIds.length
+            ? newTabIds.length - 1
+            : activeIndex;
+        return DockTabbed(
+          tabIds: newTabIds,
+          activeIndex: newIndex,
+          collapsed: collapsed,
+          expandedHeight: expandedHeight,
+        );
+
+      case DockSplit(:final axis, :final children, :final ratios):
+        final newChildren = <DockNode>[];
+        final newRatios = <double>[];
+        var changed = false;
+        for (int i = 0; i < children.length; i++) {
+          final child = _removePanel(children[i], panelId);
+          if (child == null) {
+            changed = true;
+          } else {
+            if (child != children[i]) changed = true;
+            newChildren.add(child);
+            newRatios.add(ratios[i]);
+          }
+        }
+        if (!changed) return node; // 미포함
+        if (newChildren.isEmpty) return null;
+        if (newChildren.length == 1) return newChildren.first;
+        // 비율 재정규화
+        final sum = newRatios.fold<double>(0, (a, b) => a + b);
+        final normalized = sum > 1e-6
+            ? [for (final r in newRatios) r / sum]
+            : List.filled(newRatios.length, 1.0 / newRatios.length);
+        return DockSplit(axis: axis, children: newChildren, ratios: normalized);
+
+      default:
+        return node;
     }
   }
 
