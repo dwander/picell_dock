@@ -348,6 +348,7 @@ class _HeaderActionButton extends StatefulWidget {
   final double buttonSize;
   final double iconSize;
   final bool flat;
+  final bool forceHover;
 
   const _HeaderActionButton({
     required this.icon,
@@ -356,6 +357,7 @@ class _HeaderActionButton extends StatefulWidget {
     this.buttonSize = 18.0,
     this.iconSize = 12.0,
     this.flat = false,
+    this.forceHover = false,
   });
 
   @override
@@ -377,19 +379,20 @@ class _HeaderActionButtonState extends State<_HeaderActionButton> {
           child: Builder(
             builder: (context) {
               final cs = DockTheme.of(context).colorScheme;
+              final hovered = _isHovered || widget.forceHover;
               return Container(
                 width: widget.buttonSize,
                 height: widget.buttonSize,
                 decoration: widget.flat
                     ? null
                     : BoxDecoration(
-                        color: _isHovered ? cs.hover : null,
+                        color: hovered ? cs.hover : null,
                         borderRadius: BorderRadius.circular(4),
                       ),
                 child: Icon(
                   widget.icon,
                   size: widget.iconSize,
-                  color: _isHovered ? cs.textPrimary : cs.textMuted,
+                  color: hovered ? cs.textPrimary : cs.textMuted,
                 ),
               );
             },

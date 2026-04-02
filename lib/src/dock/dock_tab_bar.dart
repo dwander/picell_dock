@@ -36,6 +36,9 @@ class _DraggableTabBarState extends ConsumerState<_DraggableTabBar>
   double _dragDeltaX = 0;
   Rect? _tabBarRect;
 
+  /// 접힌 상태에서 헤더 전체 호버 여부.
+  bool _collapsedHover = false;
+
   /// 분리 모드: 헤더 영역 벗어남 → 고스트 표시 중.
   /// 실제 undock는 panEnd 시점에 수행.
   bool _undockPending = false;
@@ -446,7 +449,15 @@ class _DraggableTabBarState extends ConsumerState<_DraggableTabBar>
                 cs.headerOverlay,
                 progress,
               )!;
-              return Container(
+              final toggleCollapse = isCollapsed && dc != null
+                  ? () => ref
+                      .read(dockProvider.notifier)
+                      .toggleCollapse(
+                        dc.groupId,
+                        nodePath: widget.nodePath,
+                      )
+                  : null;
+              Widget header = Container(
                 height: cfg.groupHeaderHeight + cfg.tabBarHeight,
                 padding: EdgeInsets.only(top: cfg.groupHeaderHeight),
                 color: isCollapsed ? null : cs.bg0,
@@ -538,6 +549,7 @@ class _DraggableTabBarState extends ConsumerState<_DraggableTabBar>
                                           ? PhosphorIconsRegular.caretDown
                                           : PhosphorIconsRegular.caretUp,
                                       tooltip: isCollapsed ? '펼치기' : '접기',
+                                      forceHover: isCollapsed && _collapsedHover,
                                       onPressed: () => ref
                                           .read(dockProvider.notifier)
                                           .toggleCollapse(
@@ -553,6 +565,20 @@ class _DraggableTabBarState extends ConsumerState<_DraggableTabBar>
                   ],
                 ),
               );
+              // 접힌 상태: 헤더 전체를 클릭/호버 영역으로 확장
+              if (toggleCollapse != null) {
+                header = MouseRegion(
+                  cursor: SystemMouseCursors.click,
+                  onEnter: (_) => setState(() => _collapsedHover = true),
+                  onExit: (_) => setState(() => _collapsedHover = false),
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.translucent,
+                    onTap: toggleCollapse,
+                    child: header,
+                  ),
+                );
+              }
+              return header;
             },
           ),
           if (canShowOverlay)
