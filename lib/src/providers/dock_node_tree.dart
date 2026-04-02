@@ -147,6 +147,24 @@ List<Rect> calcDirectChildRects(DockSplit split, Rect rect) {
   return rects;
 }
 
+/// 특정 경로의 노드 rect를 계산.
+///
+/// [calcNodeRects]는 리프/탭만 반환하지만, 이 함수는 Split 노드를 포함한
+/// 임의 경로의 노드 영역을 반환한다.
+/// 빈 경로면 [rect] 자체를 반환 (루트 = 그룹 전체).
+Rect calcNodeRectAt(DockNode root, Rect rect, List<int> path) {
+  Rect current = rect;
+  DockNode node = root;
+  for (final index in path) {
+    if (node is! DockSplit) return current;
+    if (index < 0 || index >= node.children.length) return current;
+    final childRects = calcDirectChildRects(node, current);
+    current = childRects[index];
+    node = node.children[index];
+  }
+  return current;
+}
+
 /// 자식 제거 후 나머지 영역의 rect를 계산.
 Rect calcRemainingRect(DockSplit split, Rect rect, int removedIndex) {
   final childRects = calcDirectChildRects(split, rect);

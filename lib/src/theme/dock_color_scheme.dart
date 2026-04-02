@@ -25,6 +25,9 @@ class DockColorScheme {
   final Color accent;
   final Color accentMuted;
 
+  /// 일반 도킹/언도킹 시 보더 스캔 색상 (엣지 전환과 구분).
+  final Color dockScanAccent;
+
   // ── 테두리 ──
   final Color border;
   final Color borderFocused;
@@ -50,6 +53,7 @@ class DockColorScheme {
     this.separatorHover = const Color(0xFF606060),
     this.accent = const Color(0xFF6BA3BE),
     this.accentMuted = const Color(0xFF4A7A91),
+    this.dockScanAccent = const Color(0xFF8ABE6B),
     this.border = const Color(0xFF353535),
     this.borderFocused = const Color(0xFF4A7A91),
     this.hover = const Color(0x14FFFFFF),

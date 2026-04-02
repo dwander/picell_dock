@@ -25,12 +25,17 @@ class DockNotifier extends Notifier<DockState> {
   Timer? _saveTimer;
   int _nextGroupId = 0;
 
+  /// 보더 스캔 이펙트 대기 중인 노드 (로컬 관리).
+  /// key: groupId, value: 노드 경로 (빈 리스트 = 그룹 전체).
+  final Map<String, List<int>> _scanPendingNodes = {};
+
   /// 저장 디바운스 간격.
   static const Duration _saveDebounceDuration = Duration(milliseconds: 500);
 
   @override
   DockState build() {
     _layoutService = DockLayoutService();
+    _scanPendingNodes.clear();
     ref.onDispose(() {
       _saveTimer?.cancel();
     });
@@ -62,6 +67,7 @@ class DockNotifier extends Notifier<DockState> {
       viewerSize: newState.viewerSize,
       focusedPanelId: newState.focusedPanelId ?? state.focusedPanelId,
       displayRects: rects,
+      scanPendingNodes: Map.unmodifiable(_scanPendingNodes),
     );
   }
 
@@ -589,6 +595,7 @@ class DockNotifier extends Notifier<DockState> {
       viewerSize: state.viewerSize,
       focusedPanelId: state.focusedPanelId,
       displayRects: state.displayRects,
+      scanPendingNodes: Map.unmodifiable(_scanPendingNodes),
     );
   }
 
@@ -937,6 +944,41 @@ class DockNotifier extends Notifier<DockState> {
         viewerSize: state.viewerSize,
         focusedPanelId: state.focusedPanelId,
       ),
+    );
+  }
+
+  /// 보더 스캔 대기 목록에서 특정 그룹을 제거.
+  ///
+  /// DockGroupWidget이 이펙트를 트리거한 뒤 호출.
+  void clearScanPending(String groupId) {
+    if (_scanPendingNodes.remove(groupId) == null) return;
+    state = DockState(
+      groups: state.groups,
+      draggingGroupId: state.draggingGroupId,
+      resizingGroupId: state.resizingGroupId,
+      dockPreview: state.dockPreview,
+      viewerSize: state.viewerSize,
+      focusedPanelId: state.focusedPanelId,
+      displayRects: state.displayRects,
+      scanPendingNodes: Map.unmodifiable(_scanPendingNodes),
+    );
+  }
+
+  /// 보더 스캔 대기 목록에 노드를 추가하는 헬퍼.
+  ///
+  /// [entries]는 groupId → nodePath 매핑.
+  /// 빈 리스트 경로는 그룹 전체를 의미.
+  void _addScanPending(Map<String, List<int>> entries) {
+    _scanPendingNodes.addAll(entries);
+    state = DockState(
+      groups: state.groups,
+      draggingGroupId: state.draggingGroupId,
+      resizingGroupId: state.resizingGroupId,
+      dockPreview: state.dockPreview,
+      viewerSize: state.viewerSize,
+      focusedPanelId: state.focusedPanelId,
+      displayRects: state.displayRects,
+      scanPendingNodes: Map.unmodifiable(_scanPendingNodes),
     );
   }
 
@@ -1369,6 +1411,7 @@ class DockNotifier extends Notifier<DockState> {
         viewerSize: state.viewerSize,
       ),
     );
+    _addScanPending({newGroupId: const []});
     _onLayoutChanged();
     return newGroupId;
   }
@@ -1456,6 +1499,7 @@ class DockNotifier extends Notifier<DockState> {
         viewerSize: state.viewerSize,
       ),
     );
+    _addScanPending({newGroupId: const []});
     _onLayoutChanged();
     return newGroupId;
   }
@@ -1506,6 +1550,9 @@ class DockNotifier extends Notifier<DockState> {
         ],
         viewerSize: vs,
       ));
+      _addScanPending({
+        targetId: [...nodePath, sourceFirst ? 0 : 1],
+      });
       _onLayoutChanged();
       return;
     }
@@ -1516,6 +1563,7 @@ class DockNotifier extends Notifier<DockState> {
 
     // 타겟 root가 같은 축의 Split이면 플랫하게 자식 추가
     final DockSplit mergedSplit;
+    final List<int> sourceNodePath; // 합쳐진 후 소스 노드의 경로
     if (target.root is DockSplit && (target.root as DockSplit).axis == axis) {
       final existing = target.root as DockSplit;
       final srcSize = axis == SplitAxis.horizontal
@@ -1535,6 +1583,7 @@ class DockNotifier extends Notifier<DockState> {
             ? [srcRatio, ...scaledRatios]
             : [...scaledRatios, srcRatio],
       );
+      sourceNodePath = [sourceFirst ? 0 : existing.children.length];
     } else {
       final srcSize = axis == SplitAxis.horizontal
           ? srcRect.width : srcRect.height;
@@ -1551,6 +1600,7 @@ class DockNotifier extends Notifier<DockState> {
             ? [srcRatio, 1.0 - srcRatio]
             : [1.0 - srcRatio, srcRatio],
       );
+      sourceNodePath = [sourceFirst ? 0 : 1];
     }
 
     // 엣지 패널 타겟: 위치/크기 유지, dockedEdge 보존
@@ -1572,6 +1622,7 @@ class DockNotifier extends Notifier<DockState> {
           viewerSize: vs,
         ),
       );
+      _addScanPending({targetId: sourceNodePath});
       _onLayoutChanged();
       return;
     }
@@ -1614,6 +1665,7 @@ class DockNotifier extends Notifier<DockState> {
         viewerSize: vs,
       ),
     );
+    _addScanPending({targetId: sourceNodePath});
   }
 
   /// 탭 도킹: 타겟 그룹 내 특정 노드에 탭으로 합침.
@@ -1646,6 +1698,7 @@ class DockNotifier extends Notifier<DockState> {
         viewerSize: state.viewerSize,
       ),
     );
+    _addScanPending({targetId: nodePath});
   }
 
   // ── 패널 접기/펼치기 ──

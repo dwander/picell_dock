@@ -4,6 +4,7 @@ import 'package:phosphor_flutter/phosphor_flutter.dart';
 
 import '../models/dock_group.dart';
 import '../models/dock_node.dart';
+import '../providers/dock_node_tree.dart';
 import '../providers/dock_provider.dart';
 import '../theme/dock_theme.dart';
 import '../widgets/border_scan_effect.dart';
@@ -37,6 +38,7 @@ class _DockGroupWidgetState extends ConsumerState<DockGroupWidget>
   late final AnimationController _cleanModeController;
   late final CurvedAnimation _cleanModeCurve;
   final _scanController = BorderScanController();
+  final _dockScanController = BorderScanController();
   final _edgeDockController = EdgeDockEffectController();
 
   /// 초기 레이아웃 로드 중 발생하는 dockedEdge 변경에서
@@ -46,7 +48,14 @@ class _DockGroupWidgetState extends ConsumerState<DockGroupWidget>
   /// 패널 그룹 호버 상태 — 뱃지 버튼 표시 제어.
   bool _isHovered = false;
 
+  /// 노드 수준 스캔 이펙트의 대상 rect (그룹 내 상대 좌표).
+  /// null이면 노드 스캔 오버레이 비활성.
+  Rect? _nodeScanRect;
+
   static const Duration _cleanModeDuration = Duration(milliseconds: 400);
+
+  /// 보더 스캔 애니메이션 지속 시간 (오버레이 유지용).
+  static const Duration _scanDuration = Duration(milliseconds: 800);
 
   /// 뱃지 버튼이 패널 옆으로 돌출되는 폭 — 호버 영역 확장에 사용.
   static const double _badgeOverhang = _GroupBadgeButtons._sideOffset +
@@ -67,9 +76,44 @@ class _DockGroupWidgetState extends ConsumerState<DockGroupWidget>
     // 저장된 레이아웃 로드(첫 번째 프레임 콜백)가 끝난 뒤 settled 처리.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _hasSettled = true;
+        if (!mounted) return;
+        _hasSettled = true;
+        // 언도킹으로 새로 생성된 그룹: 마운트 후 스캔 트리거.
+        _consumeScanPending();
       });
     });
+  }
+
+  /// scanPendingNodes에 이 그룹이 있으면 스캔 트리거 후 제거.
+  void _consumeScanPending() {
+    final groupId = widget.group.id;
+    final pending = ref.read(dockProvider).scanPendingNodes;
+    final path = pending[groupId];
+    if (path == null) return;
+
+    ref.read(dockProvider.notifier).clearScanPending(groupId);
+
+    if (path.isEmpty) {
+      // 그룹 전체 스캔 (언도킹으로 새로 생성된 그룹)
+      _dockScanController.trigger();
+    } else {
+      // 노드 수준 스캔 (도킹으로 합쳐진 노드)
+      final group = widget.group;
+      final displayRect = ref.read(dockProvider).displayRects[groupId];
+      final groupSize = displayRect != null
+          ? Size(displayRect.width, displayRect.height)
+          : Size(group.width, group.height);
+      final nodeRect = calcNodeRectAt(
+        group.root,
+        Rect.fromLTWH(0, 0, groupSize.width, groupSize.height),
+        path,
+      );
+      setState(() => _nodeScanRect = nodeRect);
+      // 애니메이션 완료 후 오버레이 제거.
+      Future.delayed(_scanDuration, () {
+        if (mounted) setState(() => _nodeScanRect = null);
+      });
+    }
   }
 
   @override
@@ -125,6 +169,16 @@ class _DockGroupWidgetState extends ConsumerState<DockGroupWidget>
     final theme = DockTheme.of(context);
     final cs = theme.colorScheme;
     final cfg = theme.config;
+
+    // 도킹/언도킹 보더 스캔 트리거 감지.
+    ref.listen(
+      dockProvider.select(
+        (s) => s.scanPendingNodes.containsKey(group.id),
+      ),
+      (prev, next) {
+        if (next && _hasSettled) _consumeScanPending();
+      },
+    );
 
     final dockState = ref.watch(dockProvider);
     final rect =
@@ -184,59 +238,78 @@ class _DockGroupWidgetState extends ConsumerState<DockGroupWidget>
                     controller: _scanController,
                     color: cs.accent,
                     borderRadius: cfg.groupBorderRadius,
-                    child: Stack(
-                      clipBehavior: Clip.none,
-                      children: [
-                        GestureDetector(
-                          onTap: () => ref
-                              .read(dockProvider.notifier)
-                              .bringToFront(group.id),
-                          child: Container(
-                            clipBehavior: Clip.antiAlias,
-                            decoration: BoxDecoration(
-                              color: cs.panelBackground,
-                              borderRadius: BorderRadius.circular(
-                                cfg.groupBorderRadius,
+                    child: BorderScanEffect(
+                      controller: _dockScanController,
+                      color: cs.dockScanAccent,
+                      borderRadius: cfg.groupBorderRadius,
+                      child: Stack(
+                        clipBehavior: Clip.none,
+                        children: [
+                          GestureDetector(
+                            onTap: () => ref
+                                .read(dockProvider.notifier)
+                                .bringToFront(group.id),
+                            child: Container(
+                              clipBehavior: Clip.antiAlias,
+                              decoration: BoxDecoration(
+                                color: cs.panelBackground,
+                                borderRadius: BorderRadius.circular(
+                                  cfg.groupBorderRadius,
+                                ),
+                                boxShadow: cs.groupShadow,
                               ),
-                              boxShadow: cs.groupShadow,
-                            ),
-                            foregroundDecoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(
-                                cfg.groupBorderRadius,
+                              foregroundDecoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(
+                                  cfg.groupBorderRadius,
+                                ),
+                                border: Border.all(color: cs.border),
                               ),
-                              border: Border.all(color: cs.border),
-                            ),
-                            child: DockNodeWidget(
-                              node: group.root,
-                              dragContext: DockDragContext(
-                                groupId: group.id,
-                                viewerSize: viewerSize,
-                                stackKey: widget.stackKey,
-                              ),
-                            ),
-                          ),
-                        ),
-                        // 포커스 인디케이터 — 테두리 위에 오버레이
-                        if (isFocused && showFocusHighlight)
-                          Positioned.fill(
-                            child: IgnorePointer(
-                              child: DecoratedBox(
-                                decoration: EdgeGlowDecoration(
-                                  color: cs.borderFocused,
-                                  borderRadius: cfg.groupBorderRadius,
+                              child: DockNodeWidget(
+                                node: group.root,
+                                dragContext: DockDragContext(
+                                  groupId: group.id,
+                                  viewerSize: viewerSize,
+                                  stackKey: widget.stackKey,
                                 ),
                               ),
                             ),
                           ),
-                        // 플로팅 그룹에서 모든 패널이 접혀 있으면 리사이즈 불가
-                        if (group.dockedEdge != null || !group.root.isAllCollapsed)
-                          DockResizeHandles(
-                            groupId: group.id,
-                            viewerSize: viewerSize,
-                            stackKey: widget.stackKey,
-                            dockedEdge: group.dockedEdge,
-                          ),
-                      ],
+                          // 노드 수준 보더 스캔 오버레이
+                          if (_nodeScanRect != null)
+                            Positioned(
+                              left: _nodeScanRect!.left,
+                              top: _nodeScanRect!.top,
+                              width: _nodeScanRect!.width,
+                              height: _nodeScanRect!.height,
+                              child: IgnorePointer(
+                                child: _NodeScanOverlay(
+                                  color: cs.dockScanAccent,
+                                ),
+                              ),
+                            ),
+                          // 포커스 인디케이터 — 테두리 위에 오버레이
+                          if (isFocused && showFocusHighlight)
+                            Positioned.fill(
+                              child: IgnorePointer(
+                                child: DecoratedBox(
+                                  decoration: EdgeGlowDecoration(
+                                    color: cs.borderFocused,
+                                    borderRadius: cfg.groupBorderRadius,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          // 플로팅 그룹에서 모든 패널이 접혀 있으면 리사이즈 불가
+                          if (group.dockedEdge != null ||
+                              !group.root.isAllCollapsed)
+                            DockResizeHandles(
+                              groupId: group.id,
+                              viewerSize: viewerSize,
+                              stackKey: widget.stackKey,
+                              dockedEdge: group.dockedEdge,
+                            ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -414,4 +487,40 @@ class _BadgeButtonState extends State<_BadgeButton> {
   }
 
   IconData get icon => widget.icon;
+}
+
+// ── 노드 수준 보더 스캔 오버레이 ──
+
+/// 마운트 시 자동으로 보더 스캔 이펙트를 재생하는 오버레이.
+///
+/// [_DockGroupWidgetState]가 도킹으로 합쳐진 노드 위에 배치하며,
+/// 애니메이션 완료 후 부모에서 제거된다.
+class _NodeScanOverlay extends StatefulWidget {
+  final Color color;
+
+  const _NodeScanOverlay({required this.color});
+
+  @override
+  State<_NodeScanOverlay> createState() => _NodeScanOverlayState();
+}
+
+class _NodeScanOverlayState extends State<_NodeScanOverlay> {
+  final _controller = BorderScanController();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _controller.trigger();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return BorderScanEffect(
+      controller: _controller,
+      color: widget.color,
+      child: const SizedBox.expand(),
+    );
+  }
 }

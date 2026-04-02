@@ -53,6 +53,13 @@ class DockState extends Equatable {
   /// key: groupId, value: Rect(x, y, w, h).
   final Map<String, Rect> displayRects;
 
+  /// 보더 스캔 이펙트 대기 중인 노드 목록.
+  ///
+  /// key: groupId, value: 스캔 대상 노드 경로 (빈 리스트 = 그룹 전체).
+  /// 도킹/언도킹 시 DockNotifier가 설정하고,
+  /// DockGroupWidget이 소비 후 [DockNotifier.clearScanPending]으로 제거.
+  final Map<String, List<int>> scanPendingNodes;
+
   const DockState({
     this.groups = const [],
     this.draggingGroupId,
@@ -61,6 +68,7 @@ class DockState extends Equatable {
     this.viewerSize = Size.zero,
     this.focusedPanelId,
     this.displayRects = const {},
+    this.scanPendingNodes = const {},
   });
 
   /// 드래그 또는 리사이즈가 활성 상태인지.
@@ -121,5 +129,6 @@ class DockState extends Equatable {
     viewerSize,
     focusedPanelId,
     displayRects,
+    scanPendingNodes,
   ];
 }
