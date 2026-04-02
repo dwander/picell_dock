@@ -81,6 +81,37 @@ class DockState extends Equatable {
   DockGroup? edgePanel(ViewportEdge edge) =>
       groups.where((g) => g.dockedEdge == edge).firstOrNull;
 
+  /// 우측에 위치한 패널(엣지 도킹 또는 우측 앵커)이 점유하는 너비.
+  ///
+  /// displayRects 기반으로 실제 렌더링 위치의 중심점이 우측 절반에 있고,
+  /// 세로 중심을 가로지르는 패널 중 면적이 가장 큰 패널의 너비를 반환.
+  /// 뷰어 free rect 계산, 새 패널 배치 등에서 공통으로 사용.
+  double get rightOccupiedWidth {
+    if (displayRects.isEmpty || viewerSize == Size.zero) return 0;
+
+    final vw = viewerSize.width;
+    final midX = vw / 2;
+    final midY = viewerSize.height / 2;
+
+    double maxArea = 0;
+    double resultWidth = 0;
+
+    for (final rect in displayRects.values) {
+      final cx = rect.center.dx;
+      final coversVerticalCenter = rect.top < midY && rect.bottom > midY;
+
+      // 중심이 우측 절반에 있고 세로 중심을 관통하는 패널만 대상
+      if (cx > midX && coversVerticalCenter) {
+        final area = rect.width * rect.height;
+        if (area > maxArea) {
+          maxArea = area;
+          resultWidth = vw - rect.left;
+        }
+      }
+    }
+    return resultWidth;
+  }
+
   @override
   List<Object?> get props => [
     groups,

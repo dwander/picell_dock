@@ -4,7 +4,20 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import 'dart:ui';
+
 import '../models/dock_group.dart';
+
+/// 레이아웃 로드 결과: 그룹 목록 + 패널별 마지막 단독 크기.
+class DockLayoutData {
+  final List<DockGroup> groups;
+  final Map<String, Size> lastPanelAloneSizes;
+
+  const DockLayoutData({
+    required this.groups,
+    this.lastPanelAloneSizes = const {},
+  });
+}
 
 /// 독 레이아웃 상태를 JSON 파일로 저장·복원하는 서비스.
 ///
@@ -32,8 +45,8 @@ class DockLayoutService {
     return _filePath!;
   }
 
-  /// 저장된 레이아웃 로드. 그룹 목록을 반환.
-  Future<List<DockGroup>?> loadLayout() async {
+  /// 저장된 레이아웃 로드. 그룹 목록 + 패널별 마지막 단독 크기를 반환.
+  Future<DockLayoutData?> loadLayout() async {
     try {
       final path = await _getFilePath();
       final file = File(path);
@@ -52,10 +65,24 @@ class DockLayoutService {
       final groupsJson = layout['groups'] as List?;
       if (groupsJson == null || groupsJson.isEmpty) return null;
 
-      return [
+      final groups = [
         for (final g in groupsJson)
           DockGroup.fromJson(g as Map<String, dynamic>),
       ];
+
+      // 패널별 마지막 단독 크기 복원
+      final sizesJson =
+          json['lastPanelAloneSizes'] as Map<String, dynamic>? ?? {};
+      final sizes = <String, Size>{};
+      for (final entry in sizesJson.entries) {
+        final v = entry.value as Map<String, dynamic>;
+        sizes[entry.key] = Size(
+          (v['width'] as num).toDouble(),
+          (v['height'] as num).toDouble(),
+        );
+      }
+
+      return DockLayoutData(groups: groups, lastPanelAloneSizes: sizes);
     } catch (e, st) {
       dev.log(
         '레이아웃 로드 실패',
@@ -67,8 +94,11 @@ class DockLayoutService {
     }
   }
 
-  /// 현재 레이아웃(그룹 목록)을 저장.
-  Future<void> saveLayout(List<DockGroup> groups) async {
+  /// 현재 레이아웃(그룹 목록 + 패널별 마지막 단독 크기)을 저장.
+  Future<void> saveLayout(
+    List<DockGroup> groups, {
+    Map<String, Size> lastPanelAloneSizes = const {},
+  }) async {
     final path = await _getFilePath();
     final file = File(path);
 
@@ -91,6 +121,13 @@ class DockLayoutService {
     existing['version'] = _version;
     existing['currentLayout'] = {
       'groups': [for (final g in groups) g.toJson()],
+    };
+    existing['lastPanelAloneSizes'] = {
+      for (final entry in lastPanelAloneSizes.entries)
+        entry.key: {
+          'width': entry.value.width,
+          'height': entry.value.height,
+        },
     };
 
     final jsonStr = const JsonEncoder.withIndent('  ').convert(existing);

@@ -67,12 +67,12 @@ class DockNotifier extends Notifier<DockState> {
 
   /// 저장된 레이아웃 로드 (비동기, 실패 시 기본 레이아웃 유지).
   Future<void> _loadSavedLayout() async {
-    final result = await _layoutService.loadLayout();
-    if (result != null && ref.mounted) {
+    final data = await _layoutService.loadLayout();
+    if (data != null && ref.mounted) {
       // 기존 그룹 ID에서 숫자 접미사를 파싱하여 _nextGroupId를 max+1로 설정.
       final groupIdPattern = RegExp(r'^group_(\d+)$');
       int maxId = -1;
-      for (final group in result) {
+      for (final group in data.groups) {
         final match = groupIdPattern.firstMatch(group.id);
         if (match != null) {
           final num = int.parse(match.group(1)!);
@@ -81,7 +81,8 @@ class DockNotifier extends Notifier<DockState> {
       }
       if (maxId >= 0) _nextGroupId = maxId + 1;
 
-      _setState(DockState(groups: result, viewerSize: state.viewerSize));
+      _lastPanelAloneSizes.addAll(data.lastPanelAloneSizes);
+      _setState(DockState(groups: data.groups, viewerSize: state.viewerSize));
     }
   }
 
@@ -118,7 +119,10 @@ class DockNotifier extends Notifier<DockState> {
 
     _saveTimer?.cancel();
     _saveTimer = Timer(_saveDebounceDuration, () {
-      _layoutService.saveLayout(state.groups);
+      _layoutService.saveLayout(
+        state.groups,
+        lastPanelAloneSizes: _lastPanelAloneSizes,
+      );
     });
   }
 
@@ -1241,7 +1245,10 @@ class DockNotifier extends Notifier<DockState> {
 
     _saveTimer?.cancel();
     _saveTimer = Timer(_saveDebounceDuration, () {
-      _layoutService.saveLayout(state.groups);
+      _layoutService.saveLayout(
+        state.groups,
+        lastPanelAloneSizes: _lastPanelAloneSizes,
+      );
     });
   }
 
@@ -1933,19 +1940,19 @@ class DockNotifier extends Notifier<DockState> {
 
   // ── 패널 토글 ──
 
-  /// 제거된 패널의 마지막 크기 (복원용).
-  final Map<String, Size> _removedPanelSizes = {};
+  /// 패널이 단독 그룹이었을 때의 마지막 크기 (복원용, 영속 저장).
+  final Map<String, Size> _lastPanelAloneSizes = {};
 
   /// 패널 표시/숨김 토글.
   ///
   /// 패널이 트리에 존재하면 해당 탭(또는 그룹)을 제거하고,
   /// 없으면 독립 그룹으로 새로 생성한다.
-  /// 제거 시 그룹 크기를 기억하여 복원 시 동일 크기로 생성.
+  /// 제거 시 그룹 크기를 기억(영속 저장)하여 복원 시 동일 크기로 생성.
   void togglePanel(String panelId) {
     final ownerGroup = _findGroupContaining(panelId);
 
     if (ownerGroup != null) {
-      _removedPanelSizes[panelId] =
+      _lastPanelAloneSizes[panelId] =
           Size(ownerGroup.width, ownerGroup.height);
       _removePanelFromGroup(ownerGroup, panelId);
     } else {
@@ -2017,15 +2024,15 @@ class DockNotifier extends Notifier<DockState> {
   static const double _defaultPanelHeight = 200.0;
 
   void _addPanelAsNewGroup(String panelId) {
-    final lastSize = _removedPanelSizes.remove(panelId);
+    final lastSize = _lastPanelAloneSizes[panelId];
     final w = lastSize?.width ?? _defaultPanelWidth;
     final h = lastSize?.height ?? _defaultPanelHeight;
     final vs = state.viewerSize;
 
-    // 우측 엣지 패널 영역을 제외한 X 좌표 계산
-    final rightEdge = state.edgePanel(ViewportEdge.right);
-    final rightEdgeWidth = rightEdge?.width ?? 0;
-    final absX = vs.width - rightEdgeWidth - w - _displayGap;
+    // 우측 점유 너비(엣지 + 우측 앵커 패널)를 회피한 X 좌표 계산
+    final rightUsed = state.rightOccupiedWidth;
+    final absX = (vs.width - rightUsed - w - _displayGap)
+        .clamp(_displayGap, vs.width - w);
 
     final absY = _findNonOverlappingY(
       x: absX,
@@ -2099,13 +2106,13 @@ class DockNotifier extends Notifier<DockState> {
 
   /// 그룹을 독 시스템에서 제거.
   ///
-  /// 그룹 내 패널들의 마지막 크기를 기억하여 togglePanel 복원 시 참조.
+  /// 그룹 내 패널들의 마지막 단독 크기를 기억하여 togglePanel 복원 시 참조.
   void removeGroup(String groupId) {
     final group = _findGroup(state.groups, groupId);
     if (group != null) {
       final size = Size(group.width, group.height);
       for (final panelId in group.root.collectPanelIds()) {
-        _removedPanelSizes[panelId] = size;
+        _lastPanelAloneSizes[panelId] = size;
       }
     }
     _setState(
