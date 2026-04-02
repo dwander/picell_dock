@@ -5,6 +5,7 @@ import '../models/dock_group.dart';
 import '../models/dock_node.dart';
 import '../providers/dock_node_tree.dart';
 import '../providers/dock_provider.dart';
+import '../providers/dock_settings_provider.dart';
 import '../theme/dock_theme.dart';
 
 part 'dock_tab_bar.dart';
@@ -63,20 +64,13 @@ class DockNodeWidget extends ConsumerWidget {
   }
 
   Widget _buildLeaf(String panelId, WidgetRef ref) {
-    // 헤더리스 그룹: 독립 그룹(nodePath 비어있음)이고 그룹이 headerless이면 프레임만 표시
-    if (nodePath.isEmpty && dragContext != null) {
-      final isHeaderless = ref.watch(dockProvider.select(
-        (s) => s.groups
-            .where((g) => g.id == dragContext!.groupId)
-            .firstOrNull
-            ?.headerless ?? false,
-      ));
-      if (isHeaderless) {
-        return _HeaderlessFrame(
-          panelId: panelId,
-          dragContext: dragContext,
-        );
-      }
+    final isHeaderless =
+        ref.watch(dockSettingsProvider.select((s) => s.isHeaderless(panelId)));
+    if (isHeaderless) {
+      return _HeaderlessFrame(
+        panelId: panelId,
+        dragContext: dragContext,
+      );
     }
     // Leaf를 탭 1개짜리 Tabbed와 동일하게 렌더링 → 디자인 + UX 통일
     return _buildTabbed([panelId], 0, ref);
