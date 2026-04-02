@@ -1022,6 +1022,7 @@ class DockNotifier extends Notifier<DockState> {
   ) {
     final dragRect = _groupRect(dragging);
     final anchor = cursorPosition ?? dragRect.topLeft;
+    final allowH = ref.read(dockSettingsProvider).allowHorizontalPanelDock;
 
     DockPreview? best;
     double bestDist = double.infinity;
@@ -1031,7 +1032,7 @@ class DockNotifier extends Notifier<DockState> {
 
       final targetRect = _groupRect(target);
 
-      // 기준점이 타겟 그룹의 중심 영역에 있으면 → 탭 도킹 감지
+      // 커서가 타겟 안에 있으면 → 내부 노드 단위 도킹 감지
       if (targetRect.contains(anchor)) {
         final centerZone = targetRect.deflate(_dockDetectDistance);
         if (centerZone.width > 0 &&
@@ -1049,12 +1050,12 @@ class DockNotifier extends Notifier<DockState> {
             }
           }
         }
+        continue;
       }
 
-      // 겹치는 영역이 있어야 엣지 도킹 후보
+      // 커서가 밖에 있으면 → 기존 rect 겹침 기반 엣지 도킹
       if (dragRect.intersect(targetRect).isEmpty) continue;
 
-      final allowH = ref.read(dockSettingsProvider).allowHorizontalPanelDock;
       final edges = <DockEdge, double>{
         if (allowH) DockEdge.left: (dragRect.right - targetRect.left).abs(),
         if (allowH) DockEdge.right: (dragRect.left - targetRect.right).abs(),
@@ -1428,7 +1429,10 @@ class DockNotifier extends Notifier<DockState> {
 
   // ── 도킹 실행 ──
 
-  /// 엣지 도킹: 타겟 그룹의 루트에 Split으로 합침 (크기 유지).
+  /// 엣지 도킹: 타겟 그룹(또는 내부 노드)에 Split으로 합침.
+  ///
+  /// [nodePath]가 비어있으면 그룹 루트에 도킹 (그룹 크기 확장),
+  /// 비어있지 않으면 해당 내부 노드에 도킹 (그룹 크기 유지, 내부 분할).
   void _performEdgeDock(
     String sourceId,
     String targetId,
@@ -1440,14 +1444,14 @@ class DockNotifier extends Notifier<DockState> {
     if (source == null || target == null) return;
     final vs = state.viewerSize;
 
-    // 절대 좌표로 계산
-    final srcRect = _groupRect(source);
-    final tgtRect = _groupRect(target);
-
     final axis = (edge == DockEdge.left || edge == DockEdge.right)
         ? SplitAxis.horizontal
         : SplitAxis.vertical;
     final sourceFirst = (edge == DockEdge.left || edge == DockEdge.top);
+
+    // ── 그룹 루트 도킹: 그룹 크기 확장 ──
+    final srcRect = _groupRect(source);
+    final tgtRect = _groupRect(target);
 
     // 타겟 root가 같은 축의 Split이면 플랫하게 자식 추가
     final DockSplit mergedSplit;
@@ -1457,7 +1461,6 @@ class DockNotifier extends Notifier<DockState> {
           ? srcRect.width : srcRect.height;
       final tgtSize = axis == SplitAxis.horizontal
           ? tgtRect.width : tgtRect.height;
-      // 기존 자식 비율을 tgtSize 기준으로 유지, 새 패널 비율 추가
       final totalSize = tgtSize + srcSize;
       final srcRatio = srcSize / totalSize;
       final scale = tgtSize / totalSize;
@@ -1508,6 +1511,7 @@ class DockNotifier extends Notifier<DockState> {
           viewerSize: vs,
         ),
       );
+      _onLayoutChanged();
       return;
     }
 
