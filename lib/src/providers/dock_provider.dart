@@ -522,16 +522,8 @@ class DockNotifier extends Notifier<DockState> {
     Size viewerSize, {
     Offset? cursorInStack,
   }) {
-    // 커서가 뷰포트 밖이면 드래그 종료
-    if (cursorInStack != null) {
-      final viewerRect = Offset.zero & viewerSize;
-      if (!viewerRect.contains(cursorInStack)) {
-        endDrag();
-        return;
-      }
-    }
-
     // 드래그 중: 절대좌표를 Left/Top 앵커로 임시 저장
+    // (뷰포트 클램핑은 endDrag 시점에 적용)
     final newGroups = [
       for (final g in state.groups)
         if (g.id == groupId)
