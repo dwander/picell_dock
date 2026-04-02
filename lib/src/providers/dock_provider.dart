@@ -1476,6 +1476,7 @@ class DockNotifier extends Notifier<DockState> {
     final source = _findGroup(state.groups, sourceId);
     final target = _findGroup(state.groups, targetId);
     if (source == null || target == null) return;
+    _rememberAloneSize(source);
     final vs = state.viewerSize;
 
     final axis = (edge == DockEdge.left || edge == DockEdge.right)
@@ -1620,6 +1621,7 @@ class DockNotifier extends Notifier<DockState> {
     final source = _findGroup(state.groups, sourceId);
     final target = _findGroup(state.groups, targetId);
     if (source == null || target == null) return;
+    _rememberAloneSize(source);
 
     final sourceIds = source.root.collectPanelIds();
     final targetNode = getNodeAt(target.root, nodePath);
@@ -1943,6 +1945,17 @@ class DockNotifier extends Notifier<DockState> {
   /// 패널이 단독 그룹이었을 때의 마지막 크기 (복원용, 영속 저장).
   final Map<String, Size> _lastPanelAloneSizes = {};
 
+  /// 그룹이 단독 패널 1개만 포함할 때 크기를 기억.
+  ///
+  /// 탭/스플릿 도킹, 패널 닫기 등으로 그룹이 흡수·제거될 때 호출.
+  /// 복수 패널 그룹은 개별 패널 크기로 분리할 수 없으므로 저장하지 않음.
+  void _rememberAloneSize(DockGroup group) {
+    final ids = group.root.collectPanelIds();
+    if (ids.length == 1) {
+      _lastPanelAloneSizes[ids.first] = Size(group.width, group.height);
+    }
+  }
+
   /// 패널 표시/숨김 토글.
   ///
   /// 패널이 트리에 존재하면 해당 탭(또는 그룹)을 제거하고,
@@ -1952,8 +1965,7 @@ class DockNotifier extends Notifier<DockState> {
     final ownerGroup = _findGroupContaining(panelId);
 
     if (ownerGroup != null) {
-      _lastPanelAloneSizes[panelId] =
-          Size(ownerGroup.width, ownerGroup.height);
+      _rememberAloneSize(ownerGroup);
       _removePanelFromGroup(ownerGroup, panelId);
     } else {
       _addPanelAsNewGroup(panelId);
@@ -2106,14 +2118,11 @@ class DockNotifier extends Notifier<DockState> {
 
   /// 그룹을 독 시스템에서 제거.
   ///
-  /// 그룹 내 패널들의 마지막 단독 크기를 기억하여 togglePanel 복원 시 참조.
+  /// 그룹 내 패널이 단독이면 마지막 크기를 기억하여 togglePanel 복원 시 참조.
   void removeGroup(String groupId) {
     final group = _findGroup(state.groups, groupId);
     if (group != null) {
-      final size = Size(group.width, group.height);
-      for (final panelId in group.root.collectPanelIds()) {
-        _lastPanelAloneSizes[panelId] = size;
-      }
+      _rememberAloneSize(group);
     }
     _setState(
       DockState(
