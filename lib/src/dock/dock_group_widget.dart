@@ -7,6 +7,7 @@ import '../models/dock_node.dart';
 import '../providers/dock_node_tree.dart';
 import '../providers/dock_provider.dart';
 import '../theme/dock_theme.dart';
+import '../widgets/border_glow_effect.dart';
 import '../widgets/border_scan_effect.dart';
 import '../widgets/edge_dock_effect.dart';
 import '../widgets/edge_glow_decoration.dart';
@@ -38,7 +39,7 @@ class _DockGroupWidgetState extends ConsumerState<DockGroupWidget>
   late final AnimationController _cleanModeController;
   late final CurvedAnimation _cleanModeCurve;
   final _scanController = BorderScanController();
-  final _dockScanController = BorderScanController();
+  final _dockGlowController = BorderGlowController();
   final _edgeDockController = EdgeDockEffectController();
 
   /// 초기 레이아웃 로드 중 발생하는 dockedEdge 변경에서
@@ -54,8 +55,8 @@ class _DockGroupWidgetState extends ConsumerState<DockGroupWidget>
 
   static const Duration _cleanModeDuration = Duration(milliseconds: 400);
 
-  /// 보더 스캔 애니메이션 지속 시간 (오버레이 유지용).
-  static const Duration _scanDuration = Duration(milliseconds: 800);
+  /// 보더 글로우 애니메이션 지속 시간 (오버레이 유지용).
+  static const Duration _glowDuration = Duration(milliseconds: 700);
 
   /// 뱃지 버튼이 패널 옆으로 돌출되는 폭 — 호버 영역 확장에 사용.
   static const double _badgeOverhang = _GroupBadgeButtons._sideOffset +
@@ -94,8 +95,8 @@ class _DockGroupWidgetState extends ConsumerState<DockGroupWidget>
     ref.read(dockProvider.notifier).clearScanPending(groupId);
 
     if (path.isEmpty) {
-      // 그룹 전체 스캔 (언도킹으로 새로 생성된 그룹)
-      _dockScanController.trigger();
+      // 그룹 전체 글로우 (언도킹으로 새로 생성된 그룹)
+      _dockGlowController.trigger();
     } else {
       // 노드 수준 스캔 (도킹으로 합쳐진 노드)
       final group = widget.group;
@@ -110,7 +111,7 @@ class _DockGroupWidgetState extends ConsumerState<DockGroupWidget>
       );
       setState(() => _nodeScanRect = nodeRect);
       // 애니메이션 완료 후 오버레이 제거.
-      Future.delayed(_scanDuration, () {
+      Future.delayed(_glowDuration, () {
         if (mounted) setState(() => _nodeScanRect = null);
       });
     }
@@ -238,8 +239,8 @@ class _DockGroupWidgetState extends ConsumerState<DockGroupWidget>
                     controller: _scanController,
                     color: cs.accent,
                     borderRadius: cfg.groupBorderRadius,
-                    child: BorderScanEffect(
-                      controller: _dockScanController,
+                    child: BorderGlowEffect(
+                      controller: _dockGlowController,
                       color: cs.dockScanAccent,
                       borderRadius: cfg.groupBorderRadius,
                       child: Stack(
@@ -274,7 +275,7 @@ class _DockGroupWidgetState extends ConsumerState<DockGroupWidget>
                               ),
                             ),
                           ),
-                          // 노드 수준 보더 스캔 오버레이
+                          // 노드 수준 보더 글로우 오버레이
                           if (_nodeScanRect != null)
                             Positioned(
                               left: _nodeScanRect!.left,
@@ -282,7 +283,7 @@ class _DockGroupWidgetState extends ConsumerState<DockGroupWidget>
                               width: _nodeScanRect!.width,
                               height: _nodeScanRect!.height,
                               child: IgnorePointer(
-                                child: _NodeScanOverlay(
+                                child: _NodeGlowOverlay(
                                   color: cs.dockScanAccent,
                                 ),
                               ),
@@ -489,23 +490,23 @@ class _BadgeButtonState extends State<_BadgeButton> {
   IconData get icon => widget.icon;
 }
 
-// ── 노드 수준 보더 스캔 오버레이 ──
+// ── 노드 수준 보더 글로우 오버레이 ──
 
-/// 마운트 시 자동으로 보더 스캔 이펙트를 재생하는 오버레이.
+/// 마운트 시 자동으로 보더 글로우 이펙트를 재생하는 오버레이.
 ///
 /// [_DockGroupWidgetState]가 도킹으로 합쳐진 노드 위에 배치하며,
 /// 애니메이션 완료 후 부모에서 제거된다.
-class _NodeScanOverlay extends StatefulWidget {
+class _NodeGlowOverlay extends StatefulWidget {
   final Color color;
 
-  const _NodeScanOverlay({required this.color});
+  const _NodeGlowOverlay({required this.color});
 
   @override
-  State<_NodeScanOverlay> createState() => _NodeScanOverlayState();
+  State<_NodeGlowOverlay> createState() => _NodeGlowOverlayState();
 }
 
-class _NodeScanOverlayState extends State<_NodeScanOverlay> {
-  final _controller = BorderScanController();
+class _NodeGlowOverlayState extends State<_NodeGlowOverlay> {
+  final _controller = BorderGlowController();
 
   @override
   void initState() {
@@ -517,7 +518,7 @@ class _NodeScanOverlayState extends State<_NodeScanOverlay> {
 
   @override
   Widget build(BuildContext context) {
-    return BorderScanEffect(
+    return BorderGlowEffect(
       controller: _controller,
       color: widget.color,
       child: const SizedBox.expand(),
