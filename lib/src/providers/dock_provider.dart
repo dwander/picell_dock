@@ -1037,19 +1037,12 @@ class DockNotifier extends Notifier<DockState> {
       // 겹치는 영역이 있어야 엣지 도킹 후보
       if (dragRect.intersect(targetRect).isEmpty) continue;
 
-      // 엣지 패널: 좌우 패널은 상하 split만 허용
       final allowH = ref.read(dockSettingsProvider).allowHorizontalPanelDock;
-      final edges = switch (target.dockedEdge) {
-        ViewportEdge.left || ViewportEdge.right => <DockEdge, double>{
-          DockEdge.top: (dragRect.bottom - targetRect.top).abs(),
-          DockEdge.bottom: (dragRect.top - targetRect.bottom).abs(),
-        },
-        null => <DockEdge, double>{
-          if (allowH) DockEdge.left: (dragRect.right - targetRect.left).abs(),
-          if (allowH) DockEdge.right: (dragRect.left - targetRect.right).abs(),
-          DockEdge.top: (dragRect.bottom - targetRect.top).abs(),
-          DockEdge.bottom: (dragRect.top - targetRect.bottom).abs(),
-        },
+      final edges = <DockEdge, double>{
+        if (allowH) DockEdge.left: (dragRect.right - targetRect.left).abs(),
+        if (allowH) DockEdge.right: (dragRect.left - targetRect.right).abs(),
+        DockEdge.top: (dragRect.bottom - targetRect.top).abs(),
+        DockEdge.bottom: (dragRect.top - targetRect.bottom).abs(),
       };
 
       for (final entry in edges.entries) {

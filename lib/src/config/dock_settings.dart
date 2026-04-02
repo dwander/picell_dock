@@ -7,15 +7,13 @@ import '../models/dock_group.dart';
 ///
 /// ```dart
 /// // 호스트 앱 ProviderScope:
-/// dockSettingsProvider.overrideWith((ref) {
-///   final s = ref.watch(mySettingsProvider);
-///   return DockSettings(
-///     allowAutoAvoidance: s.allowAutoAvoidance,
-///     allowHorizontalPanelDock: s.allowHorizontalPanelDock,
-///     isHeaderless: PanelRegistry.isHeaderless,
-///     defaultLayout: () => myDefaultGroups,
-///   );
-/// })
+/// dockSettingsProvider.overrideWith((ref) => DockSettings(
+///   allowAutoAvoidance: true,
+///   allowHorizontalPanelDock: true,   // 기본값 true, false면 상하 도킹만
+///   isHeaderless: PanelRegistry.isHeaderless,
+///   defaultLayout: () => myDefaultGroups,
+///   initialFocusedPanelId: 'thumbnail',
+/// ))
 /// ```
 class DockSettings {
   /// 창 리사이즈 시 패널 겹침 방지 1축 회피 허용 여부.
@@ -37,7 +35,7 @@ class DockSettings {
 
   const DockSettings({
     this.allowAutoAvoidance = false,
-    this.allowHorizontalPanelDock = false,
+    this.allowHorizontalPanelDock = true,
     this.defaultLayout,
     this.isHeaderless = _alwaysFalse,
     this.initialFocusedPanelId,

@@ -62,6 +62,39 @@ dock_overlay  (최상위, DockGridOverlay + DockGroupWidget + DockDropIndicator)
 
 ---
 
+## DockSettings API
+
+호스트 앱은 `dockSettingsProvider.overrideWith`로 독 시스템의 동작을 제어한다.
+
+| 필드 | 타입 | 기본값 | 설명 |
+|---|---|---|---|
+| `allowAutoAvoidance` | `bool` | `false` | 창 리사이즈 시 패널 겹침 방지 1축 회피 |
+| `allowHorizontalPanelDock` | `bool` | `true` | 패널 간 좌우(수평) 엣지 도킹 허용. `false`면 상하 도킹만 가능 |
+| `defaultLayout` | `List<DockGroup> Function()?` | `null` | 저장된 레이아웃 없을 때 초기 그룹 목록. null이면 빈 상태 |
+| `isHeaderless` | `bool Function(String)` | `(_) => false` | 단일 노드 그룹에서 탭 바 없이 프레임만 표시할 패널 판별 |
+| `initialFocusedPanelId` | `String?` | `null` | 저장 레이아웃 미존재 시 초기 포커스 패널 ID |
+
+### 호스트 앱 주입 예시
+
+```dart
+ProviderScope(
+  overrides: [
+    dockSettingsProvider.overrideWith((ref) => DockSettings(
+      allowAutoAvoidance: true,
+      allowHorizontalPanelDock: true,
+      isHeaderless: PanelRegistry.isHeaderless,
+      defaultLayout: () => myDefaultGroups,
+      initialFocusedPanelId: 'thumbnail',
+    )),
+  ],
+  child: MyApp(),
+)
+```
+
+기본값이 대부분 합리적이므로, 필요한 필드만 지정하면 된다.
+
+---
+
 ## 상태 관리 (DockState)
 
 ### DockState 필드
