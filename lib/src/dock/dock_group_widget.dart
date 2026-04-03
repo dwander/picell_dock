@@ -53,6 +53,9 @@ class _DockGroupWidgetState extends ConsumerState<DockGroupWidget>
   /// null이면 노드 스캔 오버레이 비활성.
   Rect? _nodeScanRect;
 
+  /// 이전 프레임의 animateHide 값. false→true 전환 시 스냅 처리에 사용.
+  bool _prevAnimateHide = true;
+
   static const Duration _cleanModeDuration = Duration(milliseconds: 400);
 
   /// 보더 글로우 애니메이션 지속 시간 (오버레이 유지용).
@@ -199,10 +202,19 @@ class _DockGroupWidgetState extends ConsumerState<DockGroupWidget>
     final showFocusHighlight = displaySettings.showFocusHighlight;
 
     final isCleanMode = displaySettings.hideUnpinned;
-    if (isCleanMode && !group.pinned) {
-      _cleanModeController.forward();
+    final shouldHide = isCleanMode && !group.pinned;
+    // 이전·현재 프레임 모두 animateHide가 true일 때만 애니메이션.
+    // false→true 전환(전체화면 복귀 등)에서는 스냅 처리.
+    final shouldAnimate = displaySettings.animateHide && _prevAnimateHide;
+    _prevAnimateHide = displaySettings.animateHide;
+    if (shouldAnimate) {
+      if (shouldHide) {
+        _cleanModeController.forward();
+      } else {
+        _cleanModeController.reverse();
+      }
     } else {
-      _cleanModeController.reverse();
+      _cleanModeController.value = shouldHide ? 1.0 : 0.0;
     }
 
     final slideOffset = _computeSlideOffset(rect, viewerSize);

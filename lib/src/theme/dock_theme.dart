@@ -15,10 +15,16 @@ class DockDisplaySettings {
   /// 패널 헤더 호버 시 오버레이 버튼 표시 여부.
   final bool showHeaderOverlay;
 
+  /// hideUnpinned 전환 시 슬라이드/페이드 애니메이션 사용 여부.
+  ///
+  /// false이면 애니메이션 없이 즉시 전환된다.
+  final bool animateHide;
+
   const DockDisplaySettings({
     this.hideUnpinned = false,
     this.showFocusHighlight = true,
     this.showHeaderOverlay = true,
+    this.animateHide = true,
   });
 }
 
