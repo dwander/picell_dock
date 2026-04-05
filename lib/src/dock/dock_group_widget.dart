@@ -185,14 +185,13 @@ class _DockGroupWidgetState extends ConsumerState<DockGroupWidget>
       },
     );
 
-    // 포커스 전환 시 테두리 플래시.
+    // 키보드 포커스 전환 시 테두리 플래시 (클릭은 제외).
     ref.listen(
-      dockProvider.select((s) {
-        final fid = s.focusedPanelId;
-        return fid != null && group.root.collectPanelIds().contains(fid);
-      }),
-      (prev, next) {
-        if (next == true && prev == false) _focusFlashController.trigger();
+      dockProvider.select((s) => s.flashPanelId),
+      (_, flashId) {
+        if (flashId != null && group.root.collectPanelIds().contains(flashId)) {
+          _focusFlashController.trigger();
+        }
       },
     );
 

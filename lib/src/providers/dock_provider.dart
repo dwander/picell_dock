@@ -66,6 +66,7 @@ class DockNotifier extends Notifier<DockState> {
       dockPreview: newState.dockPreview,
       viewerSize: newState.viewerSize,
       focusedPanelId: newState.focusedPanelId ?? state.focusedPanelId,
+      flashPanelId: newState.flashPanelId,
       displayRects: rects,
       scanPendingNodes: Map.unmodifiable(_scanPendingNodes),
     );
@@ -981,13 +982,14 @@ class DockNotifier extends Notifier<DockState> {
   ///
   /// 논리적 포커스(focusedPanelId)와 물리적 포커스(FocusNode)를
   /// 동시에 처리하여 키보드 입력이 항상 동작하도록 보장합니다.
-  void focusPanel(String panelId) {
-    if (state.focusedPanelId != panelId) {
+  void focusPanel(String panelId, {bool flash = false}) {
+    if (state.focusedPanelId != panelId || flash) {
       _setState(
         DockState(
           groups: state.groups,
           viewerSize: state.viewerSize,
           focusedPanelId: panelId,
+          flashPanelId: flash ? panelId : null,
         ),
       );
     }

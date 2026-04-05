@@ -49,6 +49,12 @@ class DockState extends Equatable {
   /// 현재 포커스된 그룹 ID.
   final String? focusedPanelId;
 
+  /// 키보드 포커스 전환 시 플래시 이펙트를 트리거할 패널 ID.
+  ///
+  /// 클릭 포커스와 구분하기 위해 [DockNotifier.focusPanel]에서
+  /// `flash: true`일 때만 설정된다.
+  final String? flashPanelId;
+
   /// 뷰포트 클램핑 + 1축 회피가 적용된 표시용 사각형.
   /// key: groupId, value: Rect(x, y, w, h).
   final Map<String, Rect> displayRects;
@@ -67,6 +73,7 @@ class DockState extends Equatable {
     this.dockPreview,
     this.viewerSize = Size.zero,
     this.focusedPanelId,
+    this.flashPanelId,
     this.displayRects = const {},
     this.scanPendingNodes = const {},
   });
@@ -128,6 +135,7 @@ class DockState extends Equatable {
     dockPreview,
     viewerSize,
     focusedPanelId,
+    flashPanelId,
     displayRects,
     scanPendingNodes,
   ];
