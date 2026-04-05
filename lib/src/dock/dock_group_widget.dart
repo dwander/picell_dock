@@ -124,7 +124,8 @@ class _DockGroupWidgetState extends ConsumerState<DockGroupWidget>
   @override
   void didUpdateWidget(DockGroupWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (_hasSettled && widget.group.dockedEdge != oldWidget.group.dockedEdge) {
+    final layoutSettled = ref.read(dockProvider).layoutSettled;
+    if (layoutSettled && widget.group.dockedEdge != oldWidget.group.dockedEdge) {
       if (widget.group.dockedEdge != null) {
         // 플로팅 → 엣지 패널: 도킹 방향 테두리 글로우 펄스
         _edgeDockController.trigger(widget.group.dockedEdge!);

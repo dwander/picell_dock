@@ -55,6 +55,12 @@ class DockState extends Equatable {
   /// `flash: true`일 때만 설정된다.
   final String? flashPanelId;
 
+  /// 저장된 레이아웃 로드가 완료되었는지 여부.
+  ///
+  /// `true`가 된 이후에만 엣지 도킹/언도킹 이펙트가 재생된다.
+  /// 앱 초기화 중 레이아웃 복원 시 이펙트가 트리거되는 것을 방지한다.
+  final bool layoutSettled;
+
   /// 뷰포트 클램핑 + 1축 회피가 적용된 표시용 사각형.
   /// key: groupId, value: Rect(x, y, w, h).
   final Map<String, Rect> displayRects;
@@ -74,6 +80,7 @@ class DockState extends Equatable {
     this.viewerSize = Size.zero,
     this.focusedPanelId,
     this.flashPanelId,
+    this.layoutSettled = false,
     this.displayRects = const {},
     this.scanPendingNodes = const {},
   });
@@ -136,6 +143,7 @@ class DockState extends Equatable {
     viewerSize,
     focusedPanelId,
     flashPanelId,
+    layoutSettled,
     displayRects,
     scanPendingNodes,
   ];

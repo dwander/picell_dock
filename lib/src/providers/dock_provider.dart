@@ -3,7 +3,7 @@ import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:flutter/foundation.dart' show listEquals;
-import 'package:flutter/widgets.dart' show FocusNode;
+import 'package:flutter/widgets.dart' show FocusNode, WidgetsBinding;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../config/dock_config.dart';
@@ -24,6 +24,10 @@ class DockNotifier extends Notifier<DockState> {
   FocusNode? _rootFocusNode;
   Timer? _saveTimer;
   int _nextGroupId = 0;
+
+  /// _setState 호출 간 layoutSettled 값을 추적.
+  /// state가 미초기화 상태일 때 state.layoutSettled 읽기를 방지한다.
+  bool _prevLayoutSettled = false;
 
   /// 보더 스캔 이펙트 대기 중인 노드 (로컬 관리).
   /// key: groupId, value: 노드 경로 (빈 리스트 = 그룹 전체).
@@ -67,9 +71,11 @@ class DockNotifier extends Notifier<DockState> {
       viewerSize: newState.viewerSize,
       focusedPanelId: newState.focusedPanelId ?? state.focusedPanelId,
       flashPanelId: newState.flashPanelId,
+      layoutSettled: newState.layoutSettled || _prevLayoutSettled,
       displayRects: rects,
       scanPendingNodes: Map.unmodifiable(_scanPendingNodes),
     );
+    _prevLayoutSettled = state.layoutSettled;
   }
 
   /// 저장된 레이아웃 로드 (비동기, 실패 시 기본 레이아웃 유지).
@@ -89,8 +95,22 @@ class DockNotifier extends Notifier<DockState> {
       if (maxId >= 0) _nextGroupId = maxId + 1;
 
       _lastPanelAloneSizes.addAll(data.lastPanelAloneSizes);
+      // 그룹 변경을 먼저 적용 (layoutSettled는 아직 false).
       _setState(DockState(groups: data.groups, viewerSize: state.viewerSize));
     }
+    // layoutSettled를 다음 프레임에 설정.
+    // 같은 프레임에 설정하면 Flutter가 두 setState를 배치(batch)해서
+    // didUpdateWidget이 layoutSettled=true인 상태에서 이펙트를 트리거하므로,
+    // 그룹 변경이 렌더링된 다음 프레임에서 settled 처리한다.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (ref.mounted) {
+        _setState(DockState(
+          groups: state.groups,
+          viewerSize: state.viewerSize,
+          layoutSettled: true,
+        ));
+      }
+    });
   }
 
   /// 레이아웃 변경 시 디바운스 저장. 뷰포트 밖 패널도 안쪽으로 보정.
