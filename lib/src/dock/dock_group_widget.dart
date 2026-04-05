@@ -213,8 +213,8 @@ class _DockGroupWidgetState extends ConsumerState<DockGroupWidget>
     final displaySettings = DockTheme.of(context).displaySettings;
     final showFocusHighlight = displaySettings.showFocusHighlight;
 
-    final isCleanMode = displaySettings.hideUnpinned;
-    final shouldHide = isCleanMode && !group.pinned;
+    final shouldHide = displaySettings.hideAll ||
+        (displaySettings.hideUnpinned && !group.pinned);
     // 이전·현재 프레임 모두 animateHide가 true일 때만 애니메이션.
     // false→true 전환(전체화면 복귀 등)에서는 스냅 처리.
     final shouldAnimate = displaySettings.animateHide && _prevAnimateHide;
