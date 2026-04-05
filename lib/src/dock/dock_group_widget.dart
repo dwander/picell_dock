@@ -40,6 +40,7 @@ class _DockGroupWidgetState extends ConsumerState<DockGroupWidget>
   late final CurvedAnimation _cleanModeCurve;
   final _scanController = BorderScanController();
   final _dockGlowController = BorderGlowController();
+  final _focusFlashController = BorderGlowController();
   final _edgeDockController = EdgeDockEffectController();
 
   /// 초기 레이아웃 로드 중 발생하는 dockedEdge 변경에서
@@ -184,6 +185,17 @@ class _DockGroupWidgetState extends ConsumerState<DockGroupWidget>
       },
     );
 
+    // 포커스 전환 시 테두리 플래시.
+    ref.listen(
+      dockProvider.select((s) {
+        final fid = s.focusedPanelId;
+        return fid != null && group.root.collectPanelIds().contains(fid);
+      }),
+      (prev, next) {
+        if (next == true && prev == false) _focusFlashController.trigger();
+      },
+    );
+
     final dockState = ref.watch(dockProvider);
     final rect =
         dockState.displayRects[group.id] ??
@@ -243,14 +255,20 @@ class _DockGroupWidgetState extends ConsumerState<DockGroupWidget>
               // 패널 본체 — Padding으로 중앙 배치
               Padding(
                 padding: EdgeInsets.symmetric(horizontal: _badgeOverhang),
-                child: EdgeDockEffect(
-                  controller: _edgeDockController,
-                  color: cs.accent,
+                child: BorderGlowEffect(
+                  controller: _focusFlashController,
+                  color: cs.borderFocused,
                   borderRadius: cfg.groupBorderRadius,
-                  child: BorderScanEffect(
-                    controller: _scanController,
+                  duration: const Duration(milliseconds: 400),
+                  intensity: 0.35,
+                  child: EdgeDockEffect(
+                    controller: _edgeDockController,
                     color: cs.accent,
                     borderRadius: cfg.groupBorderRadius,
+                    child: BorderScanEffect(
+                      controller: _scanController,
+                      color: cs.accent,
+                      borderRadius: cfg.groupBorderRadius,
                     child: BorderGlowEffect(
                       controller: _dockGlowController,
                       color: cs.dockScanAccent,
@@ -327,6 +345,7 @@ class _DockGroupWidgetState extends ConsumerState<DockGroupWidget>
                   ),
                 ),
               ),
+            ),
               // 뱃지 버튼 — 확장된 영역 내에 배치 (overflow 없이 히트 테스트 정상 작동)
               _GroupBadgeButtons(
                 group: group,

@@ -31,6 +31,9 @@ class BorderGlowEffect extends StatefulWidget {
   /// 테두리 둥근 정도 (기본: 0)
   final double borderRadius;
 
+  /// 이펙트 강도 (0.0~1.0, 기본: 1.0)
+  final double intensity;
+
   const BorderGlowEffect({
     super.key,
     required this.child,
@@ -38,6 +41,7 @@ class BorderGlowEffect extends StatefulWidget {
     this.color,
     this.duration = const Duration(milliseconds: 700),
     this.borderRadius = 0,
+    this.intensity = 1.0,
   });
 
   @override
@@ -97,6 +101,7 @@ class BorderGlowEffectState extends State<BorderGlowEffect>
                     progress: v,
                     color: color,
                     borderRadius: widget.borderRadius,
+                    intensity: widget.intensity,
                   ),
                 );
               },
@@ -131,6 +136,7 @@ class _BorderGlowPainter extends CustomPainter {
   final double progress;
   final Color color;
   final double borderRadius;
+  final double intensity;
 
   /// 메인 라인 두께
   static const double _strokeWidth = 1.5;
@@ -148,6 +154,7 @@ class _BorderGlowPainter extends CustomPainter {
     required this.progress,
     required this.color,
     required this.borderRadius,
+    this.intensity = 1.0,
   });
 
   @override
@@ -182,7 +189,7 @@ class _BorderGlowPainter extends CustomPainter {
       Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = _glowBlurRadius
-        ..color = color.withValues(alpha: alpha * 0.3)
+        ..color = color.withValues(alpha: alpha * 0.3 * intensity)
         ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
     );
 
@@ -192,11 +199,11 @@ class _BorderGlowPainter extends CustomPainter {
       Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = _strokeWidth
-        ..color = color.withValues(alpha: alpha * 0.8),
+        ..color = color.withValues(alpha: alpha * 0.8 * intensity),
     );
 
     // ── 코너 하이라이트 (모서리 포인트 강조) ──
-    final tipAlpha = alpha * 0.5;
+    final tipAlpha = alpha * 0.5 * intensity;
     final tipPaint = Paint()
       ..color = color.withValues(alpha: tipAlpha)
       ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3);
@@ -213,5 +220,6 @@ class _BorderGlowPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_BorderGlowPainter old) => old.progress != progress;
+  bool shouldRepaint(_BorderGlowPainter old) =>
+      old.progress != progress || old.intensity != intensity;
 }
