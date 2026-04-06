@@ -498,6 +498,9 @@ class _InverseCornerPainter extends CustomPainter {
     final h = size.height;
     final r = radius;
 
+    // 원이 할당 영역 밖으로 넘치지 않도록 클리핑
+    canvas.clipRect(Rect.fromLTWH(0, 0, w, h));
+
     // 1) 전체를 bg0로 채움
     canvas.drawRect(
       Rect.fromLTWH(0, 0, w, h),
