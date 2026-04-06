@@ -19,6 +19,7 @@ class DockColorScheme {
   final Color textHint;
   final Color fg3;
   final Color fg4;
+  final Color separator;
   final Color separatorHover;
 
   // ── 액센트 ──
@@ -50,6 +51,7 @@ class DockColorScheme {
     this.textHint = const Color(0xFF666666),
     this.fg3 = const Color(0xFF8A8A8A),
     this.fg4 = const Color(0xFF666666),
+    this.separator = const Color(0xFF444444),
     this.separatorHover = const Color(0xFF606060),
     this.accent = const Color(0xFF6BA3BE),
     this.accentMuted = const Color(0xFF4A7A91),

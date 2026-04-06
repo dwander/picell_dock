@@ -322,13 +322,13 @@ class _DraggableSplitSeparatorState
           height: isHorizontal ? null : DockTheme.of(context).config.splitSeparatorThickness,
           child: Center(
             child: SizedBox(
-              width: isHorizontal ? 1 : double.infinity,
-              height: isHorizontal ? double.infinity : 1,
+              width: isHorizontal ? 2 : double.infinity,
+              height: isHorizontal ? double.infinity : 2,
               child: Builder(
                 builder: (context) {
                   final cs = DockTheme.of(context).colorScheme;
                   return ColoredBox(
-                    color: _isHovered ? cs.separatorHover : cs.border,
+                    color: _isHovered ? cs.separatorHover : cs.separator,
                   );
                 },
               ),
