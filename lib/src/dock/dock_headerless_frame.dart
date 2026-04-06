@@ -243,14 +243,6 @@ class _HeaderlessFrameState extends ConsumerState<_HeaderlessFrame>
     final dc = widget.dragContext;
     final delegate = DockTheme.of(context).panelDelegate;
     final panelLayout = delegate.buildOverlayLayout?.call(widget.panelId, ref) ?? const DockOverlayLayout();
-    final dockedEdge = dc == null
-        ? null
-        : ref.watch(dockProvider.select(
-            (s) => s.groups
-                .where((g) => g.id == dc.groupId)
-                .firstOrNull
-                ?.dockedEdge,
-          ));
     final isInSplit = widget.nodePath.isNotEmpty;
     final allHeaderless = isInSplit && _isAllHeaderless();
     final rightButtons = [
@@ -265,17 +257,6 @@ class _HeaderlessFrameState extends ConsumerState<_HeaderlessFrame>
             sourceGroupId: dc.groupId,
             nodePath: widget.nodePath,
           ),
-          buttonSize: 24.0,
-          iconSize: 18.0,
-          flat: true,
-        ),
-      if (dockedEdge != null)
-        _HeaderActionButton(
-          icon: PhosphorIconsRegular.pictureInpicture,
-          tooltip: '플로팅 모드로 전환',
-          onPressed: () => ref
-              .read(dockProvider.notifier)
-              .undockFromViewportEdge(dc!.groupId),
           buttonSize: 24.0,
           iconSize: 18.0,
           flat: true,

@@ -426,10 +426,8 @@ class _DraggableTabBarState extends ConsumerState<_DraggableTabBar>
     final panelLayout = dockTheme.panelDelegate.buildOverlayLayout
         ?.call(activePanelId, ref) ??
         const DockOverlayLayout();
-    final showFloatButton =
-        dockedEdge != null && widget.nodePath.every((i) => i == 0);
     final canShowOverlay = !isCollapsed &&
-        overlayEnabled && dc != null && (panelLayout.isNotEmpty || showFloatButton);
+        overlayEnabled && dc != null && panelLayout.isNotEmpty;
     final isDragging = _draggingTabIndex != null;
 
     return MouseRegion(
@@ -598,20 +596,7 @@ class _DraggableTabBarState extends ConsumerState<_DraggableTabBar>
                 child: _OverlayZoneRow(
                   left: panelLayout.left,
                   center: panelLayout.center,
-                  right: [
-                    if (showFloatButton)
-                      _HeaderActionButton(
-                        icon: PhosphorIconsRegular.pictureInpicture,
-                        tooltip: '플로팅 모드로 전환',
-                        onPressed: () => ref
-                            .read(dockProvider.notifier)
-                            .undockFromViewportEdge(dc.groupId),
-                        buttonSize: 24.0,
-                        iconSize: 18.0,
-                        flat: true,
-                      ),
-                    ...panelLayout.right,
-                  ],
+                  right: panelLayout.right,
                 ),
               ),
             ),
