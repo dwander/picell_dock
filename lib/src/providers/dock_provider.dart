@@ -738,9 +738,17 @@ class DockNotifier extends Notifier<DockState> {
     final ratioB = splitNode.ratios[i + 1];
     final combinedRatio = ratioA + ratioB;
 
+    // 픽셀 기반 최소 크기를 ratio로 변환
+    final minPx = splitNode.axis == SplitAxis.vertical
+        ? _config.groupMinHeight
+        : _config.groupMinWidth;
+    final minRatio = totalSize > 0 ? minPx / totalSize : 0.1;
+
     // delta를 비율로 변환
     final deltaRatio = delta / totalSize;
-    final newRatioA = (ratioA + deltaRatio).clamp(0.1, combinedRatio - 0.1);
+    final effectiveMin = math.min(minRatio, combinedRatio / 2);
+    final newRatioA =
+        (ratioA + deltaRatio).clamp(effectiveMin, combinedRatio - effectiveMin);
     final newRatioB = combinedRatio - newRatioA;
 
     final newRatios = [...splitNode.ratios];
