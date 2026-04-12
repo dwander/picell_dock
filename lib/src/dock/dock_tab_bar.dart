@@ -24,7 +24,7 @@ class _DraggableTabBar extends ConsumerStatefulWidget {
 }
 
 class _DraggableTabBarState extends ConsumerState<_DraggableTabBar>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin, DockDragMixin {
   late final AnimationController _overlayController;
   late final Animation<double> _overlayAnimation;
 
@@ -39,17 +39,13 @@ class _DraggableTabBarState extends ConsumerState<_DraggableTabBar>
   /// 접힌 상태에서 헤더 전체 호버 여부.
   bool _collapsedHover = false;
 
-  /// 분리 모드: 헤더 영역 벗어남 → 고스트 표시 중.
-  /// 실제 undock는 panEnd 시점에 수행.
-  bool _undockPending = false;
-  OverlayEntry? _ghostEntry;
-  Offset _ghostPosition = Offset.zero;
-  Size _ghostSize = const Size(200, 120);
-  String _ghostLabel = '';
+  @override
+  DockDragContext? get dragContext => widget.dragContext;
 
   @override
   void initState() {
     super.initState();
+    initDragMixin();
     _overlayController = AnimationController(
       duration: const Duration(milliseconds: 150),
       vsync: this,
@@ -63,89 +59,10 @@ class _DraggableTabBarState extends ConsumerState<_DraggableTabBar>
 
   @override
   void dispose() {
-    _removeGhost();
+    removeGhost();
+    disposeDragMixin();
     _overlayController.dispose();
     super.dispose();
-  }
-
-  void _showGhost(int tabIndex, Offset globalPosition) {
-    _ghostLabel = DockTheme.of(context).panelDelegate.labelOf(widget.tabIds[tabIndex]);
-
-    // 소속 노드 영역의 실제 크기
-    if (widget.nodeSize.width > 0 && widget.nodeSize.height > 0) {
-      _ghostSize = widget.nodeSize;
-    }
-
-    _ghostPosition = Offset(
-      globalPosition.dx - _ghostSize.width / 2,
-      globalPosition.dy - 10,
-    );
-
-    _ghostEntry = OverlayEntry(builder: (_) => _buildGhost());
-    Overlay.of(context).insert(_ghostEntry!);
-  }
-
-  void _updateGhost(Offset globalPosition) {
-    _ghostPosition = Offset(
-      globalPosition.dx - _ghostSize.width / 2,
-      globalPosition.dy - 10,
-    );
-    _ghostEntry?.markNeedsBuild();
-  }
-
-  void _removeGhost() {
-    _ghostEntry?.remove();
-    _ghostEntry = null;
-  }
-
-  Widget _buildGhost() {
-    final textTheme = Theme.of(context).textTheme;
-    return Positioned(
-      left: _ghostPosition.dx,
-      top: _ghostPosition.dy,
-      child: IgnorePointer(
-        child: Material(
-          color: Colors.transparent,
-          child: Opacity(
-            opacity: 0.85,
-            child: Container(
-              width: _ghostSize.width,
-              height: _ghostSize.height,
-              clipBehavior: Clip.antiAlias,
-              decoration: BoxDecoration(
-                color: DockTheme.of(context).colorScheme.panelBackground,
-                borderRadius: BorderRadius.circular(
-                  DockTheme.of(context).config.groupBorderRadius,
-                ),
-                border: Border.all(color: DockTheme.of(context).colorScheme.border),
-                boxShadow: DockTheme.of(context).colorScheme.groupShadow,
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  // 패널 헤더 (이름 표시)
-                  Container(
-                    height: DockTheme.of(context).config.panelHeaderHeight,
-                    color: DockTheme.of(context).colorScheme.bg0,
-                    padding: const EdgeInsets.symmetric(horizontal: 10),
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      _ghostLabel,
-                      style: textTheme.labelSmall?.copyWith(
-                        color: DockTheme.of(context).colorScheme.textSecondary,
-                      ),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  // 빈 패널 영역
-                  const Expanded(child: SizedBox.shrink()),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
   }
 
   void _onHoverChanged(bool hovered) {
@@ -256,21 +173,21 @@ class _DraggableTabBarState extends ConsumerState<_DraggableTabBar>
     final insideTabBar = tabBarRect.contains(details.globalPosition);
 
     // 분리 모드 중
-    if (_undockPending) {
+    if (undockPending) {
       if (insideTabBar) {
         // 헤더 영역으로 복귀 → 분리 취소, 리오더 모드로 복원
-        _removeGhost();
+        removeGhost();
         ref.read(dockProvider.notifier).clearGhostDockPreview();
-        _undockPending = false;
+        undockPending = false;
         _dragDeltaX = details.globalPosition.dx - _dragStartGlobalX;
         setState(() {});
       } else {
         // 고스트 업데이트 + 도킹 감지
-        _updateGhost(details.globalPosition);
+        updateGhost(details.globalPosition);
         final cursorInStack = details.globalPosition - dc.stackOrigin;
         ref.read(dockProvider.notifier).updateGhostDockPreview(
           cursorInStack: cursorInStack,
-          ghostSize: _ghostSize,
+          ghostSize: ghostSize,
           excludeGroupId: dc.groupId,
         );
       }
@@ -283,8 +200,11 @@ class _DraggableTabBarState extends ConsumerState<_DraggableTabBar>
       final canUndock =
           widget.tabIds.length > 1 || widget.nodePath.isNotEmpty;
       if (canUndock) {
-        _undockPending = true;
-        _showGhost(_draggingTabIndex!, details.globalPosition);
+        undockPending = true;
+        final label = DockTheme.of(context).panelDelegate.labelOf(
+          widget.tabIds[_draggingTabIndex!],
+        );
+        showGhost(label, details.globalPosition, nodeSize: widget.nodeSize);
         setState(() {});
       }
       return;
@@ -323,8 +243,8 @@ class _DraggableTabBarState extends ConsumerState<_DraggableTabBar>
     final dc = widget.dragContext;
     final notifier = ref.read(dockProvider.notifier);
 
-    if (_undockPending && dc != null && _draggingTabIndex != null) {
-      _removeGhost();
+    if (undockPending && dc != null && _draggingTabIndex != null) {
+      removeGhost();
 
       final preview = ref.read(dockProvider).dockPreview;
       final cursorInStack = details.globalPosition - dc.stackOrigin;
@@ -359,13 +279,13 @@ class _DraggableTabBarState extends ConsumerState<_DraggableTabBar>
 
       notifier.clearGhostDockPreview();
     } else {
-      _removeGhost();
+      removeGhost();
     }
 
     setState(() {
       _draggingTabIndex = null;
       _dragDeltaX = 0;
-      _undockPending = false;
+      undockPending = false;
       _tabBarRect = null;
     });
   }

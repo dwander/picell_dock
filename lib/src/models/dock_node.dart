@@ -25,6 +25,9 @@ class DockLeaf extends DockNode {
 
   const DockLeaf({required this.panelId});
 
+  DockLeaf copyWith({String? panelId}) =>
+      DockLeaf(panelId: panelId ?? this.panelId);
+
   @override
   Map<String, dynamic> toJson() => {'type': 'leaf', 'panelId': panelId};
 
@@ -52,6 +55,18 @@ class DockSplit extends DockNode {
     required this.ratios,
   }) : assert(children.length == ratios.length),
        assert(children.length >= 2);
+
+  DockSplit copyWith({
+    SplitAxis? axis,
+    List<DockNode>? children,
+    List<double>? ratios,
+  }) {
+    return DockSplit(
+      axis: axis ?? this.axis,
+      children: children ?? this.children,
+      ratios: ratios ?? this.ratios,
+    );
+  }
 
   @override
   Map<String, dynamic> toJson() => {

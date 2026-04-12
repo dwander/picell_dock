@@ -7,6 +7,7 @@ import '../providers/dock_node_tree.dart';
 import '../providers/dock_provider.dart';
 import '../providers/dock_settings_provider.dart';
 import '../theme/dock_theme.dart';
+import 'dock_drag_mixin.dart';
 
 part 'dock_tab_bar.dart';
 part 'dock_headerless_frame.dart';

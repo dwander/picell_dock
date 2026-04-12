@@ -23,7 +23,7 @@ class _HeaderlessFrame extends ConsumerStatefulWidget {
 }
 
 class _HeaderlessFrameState extends ConsumerState<_HeaderlessFrame>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin, DockDragMixin {
   Offset _grabOffset = Offset.zero;
   Offset _stackOrigin = Offset.zero;
 
@@ -33,8 +33,12 @@ class _HeaderlessFrameState extends ConsumerState<_HeaderlessFrame>
   static const Duration _overlayDuration = Duration(milliseconds: 200);
 
   @override
+  DockDragContext? get dragContext => widget.dragContext;
+
+  @override
   void initState() {
     super.initState();
+    initDragMixin();
     _overlayCtrl = AnimationController(
       duration: _overlayDuration,
       vsync: this,
@@ -47,6 +51,8 @@ class _HeaderlessFrameState extends ConsumerState<_HeaderlessFrame>
 
   @override
   void dispose() {
+    removeGhost();
+    disposeDragMixin();
     _overlayCtrl.dispose();
     super.dispose();
   }
@@ -71,91 +77,6 @@ class _HeaderlessFrameState extends ConsumerState<_HeaderlessFrame>
     return group.root.collectPanelIds().every(settings.isHeaderless);
   }
 
-  /// 혼합 그룹 분리 모드: 고스트 표시 중.
-  bool _undockPending = false;
-  OverlayEntry? _ghostEntry;
-  Offset _ghostPosition = Offset.zero;
-  Size _ghostSize = const Size(200, 120);
-
-  void _showGhost(Offset globalPosition) {
-    final dc = widget.dragContext;
-    if (dc == null) return;
-    // 이 노드의 실제 렌더 크기를 고스트 크기로 사용
-    final renderBox = context.findRenderObject() as RenderBox?;
-    if (renderBox != null && renderBox.hasSize) {
-      _ghostSize = renderBox.size;
-    }
-    _ghostPosition = Offset(
-      globalPosition.dx - _ghostSize.width / 2,
-      globalPosition.dy - 10,
-    );
-    _ghostEntry = OverlayEntry(builder: (_) => _buildGhost());
-    Overlay.of(context).insert(_ghostEntry!);
-  }
-
-  void _updateGhost(Offset globalPosition) {
-    _ghostPosition = Offset(
-      globalPosition.dx - _ghostSize.width / 2,
-      globalPosition.dy - 10,
-    );
-    _ghostEntry?.markNeedsBuild();
-  }
-
-  void _removeGhost() {
-    _ghostEntry?.remove();
-    _ghostEntry = null;
-  }
-
-  Widget _buildGhost() {
-    final cs = DockTheme.of(context).colorScheme;
-    final cfg = DockTheme.of(context).config;
-    final delegate = DockTheme.of(context).panelDelegate;
-    final label = delegate.labelOf(widget.panelId);
-    final textTheme = Theme.of(context).textTheme;
-    return Positioned(
-      left: _ghostPosition.dx,
-      top: _ghostPosition.dy,
-      child: IgnorePointer(
-        child: Material(
-          color: Colors.transparent,
-          child: Opacity(
-            opacity: 0.85,
-            child: Container(
-              width: _ghostSize.width,
-              height: _ghostSize.height,
-              clipBehavior: Clip.antiAlias,
-              decoration: BoxDecoration(
-                color: cs.panelBackground,
-                borderRadius: BorderRadius.circular(cfg.groupBorderRadius),
-                border: Border.all(color: cs.border),
-                boxShadow: cs.groupShadow,
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Container(
-                    height: cfg.panelHeaderHeight,
-                    color: cs.bg0,
-                    padding: const EdgeInsets.symmetric(horizontal: 10),
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      label,
-                      style: textTheme.labelSmall?.copyWith(
-                        color: cs.textSecondary,
-                      ),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  const Expanded(child: SizedBox.shrink()),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
   void _onDragStart(DragStartDetails details) {
     final dc = widget.dragContext;
     if (dc == null) return;
@@ -165,8 +86,13 @@ class _HeaderlessFrameState extends ConsumerState<_HeaderlessFrame>
 
     // Split 내부 + 일반 패널 혼합 → 고스트 분리 모드
     if (widget.nodePath.isNotEmpty && !_isAllHeaderless()) {
-      _undockPending = true;
-      _showGhost(details.globalPosition);
+      undockPending = true;
+      final renderBox = context.findRenderObject() as RenderBox?;
+      final nodeSize = (renderBox != null && renderBox.hasSize)
+          ? renderBox.size
+          : null;
+      final label = DockTheme.of(context).panelDelegate.labelOf(widget.panelId);
+      showGhost(label, details.globalPosition, nodeSize: nodeSize);
       return;
     }
 
@@ -186,12 +112,12 @@ class _HeaderlessFrameState extends ConsumerState<_HeaderlessFrame>
     final dc = widget.dragContext;
     if (dc == null) return;
 
-    if (_undockPending) {
-      _updateGhost(details.globalPosition);
+    if (undockPending) {
+      updateGhost(details.globalPosition);
       final cursorInStack = details.globalPosition - dc.stackOrigin;
       ref.read(dockProvider.notifier).updateGhostDockPreview(
         cursorInStack: cursorInStack,
-        ghostSize: _ghostSize,
+        ghostSize: ghostSize,
         excludeGroupId: dc.groupId,
       );
       return;
@@ -210,8 +136,8 @@ class _HeaderlessFrameState extends ConsumerState<_HeaderlessFrame>
     final dc = widget.dragContext;
     final notifier = ref.read(dockProvider.notifier);
 
-    if (_undockPending && dc != null) {
-      _removeGhost();
+    if (undockPending && dc != null) {
+      removeGhost();
       final preview = ref.read(dockProvider).dockPreview;
       final cursorInStack = details.globalPosition - dc.stackOrigin;
 
@@ -232,7 +158,7 @@ class _HeaderlessFrameState extends ConsumerState<_HeaderlessFrame>
         }
       }
       notifier.clearGhostDockPreview();
-      _undockPending = false;
+      undockPending = false;
     } else {
       notifier.endDrag();
     }

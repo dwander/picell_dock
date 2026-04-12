@@ -23,7 +23,7 @@ class EdgeDockEffect extends StatefulWidget {
   final Widget child;
   final EdgeDockEffectController controller;
 
-  /// 글로우 색상 (기본: AppColors.accent)
+  /// 글로우 색상 (기본: DockTheme 액센트 색)
   final Color? color;
 
   /// 애니메이션 전체 길이 (기본: 600ms)

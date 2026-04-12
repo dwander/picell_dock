@@ -36,6 +36,9 @@ class DockNotifier extends Notifier<DockState> {
   /// 저장 디바운스 간격.
   static const Duration _saveDebounceDuration = Duration(milliseconds: 500);
 
+  /// 부동소수점 위치/크기 변경 감지 임계값.
+  static const double _positionEpsilon = 0.5;
+
   @override
   DockState build() {
     _layoutService = DockLayoutService();
@@ -78,6 +81,53 @@ class DockNotifier extends Notifier<DockState> {
     _prevLayoutSettled = state.layoutSettled;
   }
 
+  /// displayRects를 재계산하지 않는 경량 상태 갱신.
+  ///
+  /// dockPreview나 scanPendingNodes처럼 레이아웃에 영향 없는 필드만
+  /// 변경할 때 사용. displayRects는 기존 값을 그대로 유지.
+  void _setStateLight({
+    DockPreview? dockPreview,
+  }) {
+    state = DockState(
+      groups: state.groups,
+      draggingGroupId: state.draggingGroupId,
+      resizingGroupId: state.resizingGroupId,
+      dockPreview: dockPreview ?? state.dockPreview,
+      viewerSize: state.viewerSize,
+      focusedPanelId: state.focusedPanelId,
+      displayRects: state.displayRects,
+      scanPendingNodes: Map.unmodifiable(_scanPendingNodes),
+    );
+  }
+
+  /// groups 리스트에서 [id]에 해당하는 그룹을 [replacement]로 교체.
+  List<DockGroup> _replaceGroup(String id, DockGroup replacement) {
+    return [for (final g in state.groups) if (g.id == id) replacement else g];
+  }
+
+  /// groups 리스트에서 [id]에 해당하는 그룹을 [update] 결과로 교체.
+  List<DockGroup> _updateGroup(String id, DockGroup Function(DockGroup) update) {
+    return [for (final g in state.groups) if (g.id == id) update(g) else g];
+  }
+
+  /// groups 리스트에서 [removeId]를 제거.
+  List<DockGroup> _removeGroup(String removeId) {
+    return [for (final g in state.groups) if (g.id != removeId) g];
+  }
+
+  /// groups 리스트에서 [targetId]를 [replacement]로 교체하면서 [removeId]를 제거.
+  List<DockGroup> _replaceAndRemoveGroup(
+    String targetId,
+    DockGroup replacement,
+    String removeId,
+  ) {
+    return [
+      for (final g in state.groups)
+        if (g.id == targetId) replacement
+        else if (g.id != removeId) g,
+    ];
+  }
+
   /// 저장된 레이아웃 로드 (비동기, 실패 시 기본 레이아웃 유지).
   Future<void> _loadSavedLayout() async {
     final data = await _layoutService.loadLayout();
@@ -104,7 +154,7 @@ class DockNotifier extends Notifier<DockState> {
       final List<DockGroup> groups;
       if (savedVH != null &&
           currentVH > 0 &&
-          (savedVH - currentVH).abs() > 0.5) {
+          (savedVH - currentVH).abs() > _positionEpsilon) {
         groups = [
           for (final g in data.groups)
             if (g.dockedEdge != null)
@@ -147,11 +197,11 @@ class DockNotifier extends Notifier<DockState> {
           final rect = displayRects[g.id];
           if (rect == null) return g;
           final sizeChanged =
-              (g.width - rect.width).abs() > 0.5 ||
-              (g.height - rect.height).abs() > 0.5;
+              (g.width - rect.width).abs() > _positionEpsilon ||
+              (g.height - rect.height).abs() > _positionEpsilon;
           final posChanged =
-              (g.absoluteX(vs.width) - rect.left).abs() > 0.5 ||
-              (g.absoluteY(vs.height) - rect.top).abs() > 0.5;
+              (g.absoluteX(vs.width) - rect.left).abs() > _positionEpsilon ||
+              (g.absoluteY(vs.height) - rect.top).abs() > _positionEpsilon;
           if (!sizeChanged && !posChanged) return g;
           return g
               .copyWith(width: rect.width, height: rect.height)
@@ -167,6 +217,13 @@ class DockNotifier extends Notifier<DockState> {
       ),
     );
 
+    _scheduleSave();
+  }
+
+  /// 레이아웃 변경 후 디바운스 저장을 예약한다.
+  ///
+  /// 기존 타이머를 취소하고 [_saveDebounceDuration] 후 저장을 실행.
+  void _scheduleSave() {
     _saveTimer?.cancel();
     final viewportH = state.viewerSize.height;
     _saveTimer = Timer(_saveDebounceDuration, () {
@@ -197,6 +254,14 @@ class DockNotifier extends Notifier<DockState> {
     return rects;
   }
 
+  /// 엣지(left/right) 기준으로 패널의 뷰포트 내 Rect를 계산.
+  static Rect _edgeRect(ViewportEdge edge, double width, Size vs) {
+    return switch (edge) {
+      ViewportEdge.left => Rect.fromLTWH(0, 0, width, vs.height),
+      ViewportEdge.right => Rect.fromLTWH(vs.width - width, 0, width, vs.height),
+    };
+  }
+
   /// 0단계: 엣지 패널 위치 고정.
   void _applyEdgePanelRects(
     Map<String, Rect> rects,
@@ -205,15 +270,7 @@ class DockNotifier extends Notifier<DockState> {
   ) {
     for (final group in groups) {
       if (group.dockedEdge == null) continue;
-      rects[group.id] = switch (group.dockedEdge!) {
-        ViewportEdge.left => Rect.fromLTWH(0, 0, group.width, vs.height),
-        ViewportEdge.right => Rect.fromLTWH(
-          vs.width - group.width,
-          0,
-          group.width,
-          vs.height,
-        ),
-      };
+      rects[group.id] = _edgeRect(group.dockedEdge!, group.width, vs);
     }
   }
 
@@ -350,25 +407,22 @@ class DockNotifier extends Notifier<DockState> {
     final vs = state.viewerSize;
 
     final sizeChanged =
-        (group.width - rect.width).abs() > 0.5 ||
-        (group.height - rect.height).abs() > 0.5;
+        (group.width - rect.width).abs() > _positionEpsilon ||
+        (group.height - rect.height).abs() > _positionEpsilon;
     final posChanged =
-        (group.absoluteX(vs.width) - rect.left).abs() > 0.5 ||
-        (group.absoluteY(vs.height) - rect.top).abs() > 0.5;
+        (group.absoluteX(vs.width) - rect.left).abs() > _positionEpsilon ||
+        (group.absoluteY(vs.height) - rect.top).abs() > _positionEpsilon;
 
     if (!sizeChanged && !posChanged) return;
 
     _setState(
       DockState(
-        groups: [
-          for (final g in state.groups)
-            if (g.id == groupId)
-              g
-                  .copyWith(width: rect.width, height: rect.height)
-                  .updateFromAbsolute(rect.left, rect.top, vs.width, vs.height)
-            else
-              g,
-        ],
+        groups: _updateGroup(
+          groupId,
+          (g) => g
+              .copyWith(width: rect.width, height: rect.height)
+              .updateFromAbsolute(rect.left, rect.top, vs.width, vs.height),
+        ),
         viewerSize: vs,
       ),
     );
@@ -627,14 +681,7 @@ class DockNotifier extends Notifier<DockState> {
     final preview = _detectDockTarget(virtualGroup, targets, cursorInStack);
 
     // 프리뷰만 갱신 (그룹 이동 없음)
-    state = DockState(
-      groups: state.groups,
-      dockPreview: preview,
-      viewerSize: state.viewerSize,
-      focusedPanelId: state.focusedPanelId,
-      displayRects: state.displayRects,
-      scanPendingNodes: Map.unmodifiable(_scanPendingNodes),
-    );
+    _setStateLight(dockPreview: preview);
   }
 
   /// 외부에서 탭 도킹 수행 (고스트 드롭 등).
@@ -696,10 +743,7 @@ class DockNotifier extends Notifier<DockState> {
 
       _setState(
         DockState(
-          groups: [
-            for (final g in state.groups)
-              if (g.id == draggingId) committed else g,
-          ],
+          groups: _replaceGroup(draggingId, committed),
           viewerSize: vs,
         ),
       );
@@ -729,10 +773,7 @@ class DockNotifier extends Notifier<DockState> {
           );
       _setState(
         DockState(
-          groups: [
-            for (final g in state.groups)
-              if (g.id == groupId) updated else g,
-          ],
+          groups: _replaceGroup(groupId, updated),
           viewerSize: viewerSize,
         ),
       );
@@ -789,10 +830,7 @@ class DockNotifier extends Notifier<DockState> {
     final newRoot = replaceNodeAt(group.root, nodePath, newSplit);
     _setState(
       DockState(
-        groups: [
-          for (final g in state.groups)
-            if (g.id == groupId) g.copyWith(root: newRoot) else g,
-        ],
+        groups: _updateGroup(groupId, (g) => g.copyWith(root: newRoot)),
         viewerSize: state.viewerSize,
       ),
     );
@@ -817,10 +855,7 @@ class DockNotifier extends Notifier<DockState> {
     final newRoot = replaceNodeAt(group.root, nodePath, newTabbed);
     _setState(
       DockState(
-        groups: [
-          for (final g in state.groups)
-            if (g.id == groupId) g.copyWith(root: newRoot) else g,
-        ],
+        groups: _updateGroup(groupId, (g) => g.copyWith(root: newRoot)),
         viewerSize: state.viewerSize,
         focusedPanelId: node.tabIds[tabIndex],
       ),
@@ -863,10 +898,7 @@ class DockNotifier extends Notifier<DockState> {
     final newRoot = replaceNodeAt(group.root, nodePath, newTabbed);
     _setState(
       DockState(
-        groups: [
-          for (final g in state.groups)
-            if (g.id == groupId) g.copyWith(root: newRoot) else g,
-        ],
+        groups: _updateGroup(groupId, (g) => g.copyWith(root: newRoot)),
         viewerSize: state.viewerSize,
       ),
     );
@@ -902,8 +934,8 @@ class DockNotifier extends Notifier<DockState> {
     // 크기가 변경되면 가장 큰 패널만 유동 리사이즈, 나머지 고정
     final DockNode root;
     if (group != null &&
-        ((group.height - height).abs() > 0.5 ||
-         (group.width - width).abs() > 0.5)) {
+        ((group.height - height).abs() > _positionEpsilon ||
+         (group.width - width).abs() > _positionEpsilon)) {
       root = _fixSplitRatiosForResize(
         group.root,
         Size(group.width, group.height),
@@ -914,21 +946,18 @@ class DockNotifier extends Notifier<DockState> {
     }
     _setState(
       DockState(
-        groups: [
-          for (final g in state.groups)
-            if (g.id == groupId)
-              g.copyWith(
-                root: root,
-                anchorX: AnchorX.left,
-                anchorY: AnchorY.top,
-                offsetX: left,
-                offsetY: top,
-                width: width,
-                height: height,
-              )
-            else
-              g,
-        ],
+        groups: _updateGroup(
+          groupId,
+          (g) => g.copyWith(
+            root: root,
+            anchorX: AnchorX.left,
+            anchorY: AnchorY.top,
+            offsetX: left,
+            offsetY: top,
+            width: width,
+            height: height,
+          ),
+        ),
         resizingGroupId: state.resizingGroupId,
         viewerSize: state.viewerSize,
       ),
@@ -940,31 +969,25 @@ class DockNotifier extends Notifier<DockState> {
     final vs = state.viewerSize;
     _setState(
       DockState(
-        groups: [
-          for (final g in state.groups)
-            if (g.id == groupId)
-              () {
-                final snapped = g
-                    .copyWith(width: _snap(g.width), height: _snap(g.height))
-                    .updateFromAbsolute(
-                      _snap(g.offsetX),
-                      _snap(g.offsetY),
-                      vs.width,
-                      vs.height,
-                    );
-                // 접힌 노드 고정 + 가장 큰 패널만 유동 보정
-                final snappedSize = Size(snapped.width, snapped.height);
-                final fixedRoot = _fixSplitRatiosForResize(
-                  snapped.root, snappedSize, snappedSize,
-                );
-                return _clampToViewport(
-                  snapped.copyWith(root: fixedRoot),
-                  vs,
-                );
-              }()
-            else
-              g,
-        ],
+        groups: _updateGroup(groupId, (g) {
+          final snapped = g
+              .copyWith(width: _snap(g.width), height: _snap(g.height))
+              .updateFromAbsolute(
+                _snap(g.offsetX),
+                _snap(g.offsetY),
+                vs.width,
+                vs.height,
+              );
+          // 접힌 노드 고정 + 가장 큰 패널만 유동 보정
+          final snappedSize = Size(snapped.width, snapped.height);
+          final fixedRoot = _fixSplitRatiosForResize(
+            snapped.root, snappedSize, snappedSize,
+          );
+          return _clampToViewport(
+            snapped.copyWith(root: fixedRoot),
+            vs,
+          );
+        }),
         viewerSize: vs,
       ),
     );
@@ -981,10 +1004,7 @@ class DockNotifier extends Notifier<DockState> {
 
     _setState(
       DockState(
-        groups: [
-          for (final g in state.groups)
-            if (g.id == groupId) g.copyWith(zOrder: maxZ + 1) else g,
-        ],
+        groups: _updateGroup(groupId, (g) => g.copyWith(zOrder: maxZ + 1)),
         draggingGroupId: state.draggingGroupId,
         dockPreview: state.dockPreview,
         viewerSize: state.viewerSize,
@@ -998,16 +1018,7 @@ class DockNotifier extends Notifier<DockState> {
   /// DockGroupWidget이 이펙트를 트리거한 뒤 호출.
   void clearScanPending(String groupId) {
     if (_scanPendingNodes.remove(groupId) == null) return;
-    state = DockState(
-      groups: state.groups,
-      draggingGroupId: state.draggingGroupId,
-      resizingGroupId: state.resizingGroupId,
-      dockPreview: state.dockPreview,
-      viewerSize: state.viewerSize,
-      focusedPanelId: state.focusedPanelId,
-      displayRects: state.displayRects,
-      scanPendingNodes: Map.unmodifiable(_scanPendingNodes),
-    );
+    _setStateLight();
   }
 
   /// 보더 스캔 대기 목록에 노드를 추가하는 헬퍼.
@@ -1016,16 +1027,7 @@ class DockNotifier extends Notifier<DockState> {
   /// 빈 리스트 경로는 그룹 전체를 의미.
   void _addScanPending(Map<String, List<int>> entries) {
     _scanPendingNodes.addAll(entries);
-    state = DockState(
-      groups: state.groups,
-      draggingGroupId: state.draggingGroupId,
-      resizingGroupId: state.resizingGroupId,
-      dockPreview: state.dockPreview,
-      viewerSize: state.viewerSize,
-      focusedPanelId: state.focusedPanelId,
-      displayRects: state.displayRects,
-      scanPendingNodes: Map.unmodifiable(_scanPendingNodes),
-    );
+    _setStateLight();
   }
 
   /// 루트 FocusNode 등록 (HomeScreen initState에서 호출)
@@ -1077,15 +1079,7 @@ class DockNotifier extends Notifier<DockState> {
     // 엣지 패널: 실제 레이아웃 좌표로 변환
     if (g.dockedEdge != null) {
       final vs = state.viewerSize;
-      return switch (g.dockedEdge!) {
-        ViewportEdge.left => Rect.fromLTWH(0, 0, g.width, vs.height),
-        ViewportEdge.right => Rect.fromLTWH(
-          vs.width - g.width,
-          0,
-          g.width,
-          vs.height,
-        ),
-      };
+      return _edgeRect(g.dockedEdge!, g.width, vs);
     }
     // display rect가 있으면 보정된 좌표 사용 (자동 리사이즈 반영)
     final displayRect = state.displayRects[g.id];
@@ -1268,10 +1262,7 @@ class DockNotifier extends Notifier<DockState> {
 
     _setState(
       DockState(
-        groups: [
-          for (final g in state.groups)
-            if (g.id == groupId) docked else g,
-        ],
+        groups: _replaceGroup(groupId, docked),
         viewerSize: state.viewerSize,
       ),
     );
@@ -1301,10 +1292,7 @@ class DockNotifier extends Notifier<DockState> {
 
     _setState(
       DockState(
-        groups: [
-          for (final g in state.groups)
-            if (g.id == groupId) floating else g,
-        ],
+        groups: _replaceGroup(groupId, floating),
         viewerSize: vs,
       ),
     );
@@ -1324,23 +1312,12 @@ class DockNotifier extends Notifier<DockState> {
 
     _setState(
       DockState(
-        groups: [
-          for (final g in state.groups)
-            if (g.id == groupId) updated else g,
-        ],
+        groups: _replaceGroup(groupId, updated),
         viewerSize: state.viewerSize,
       ),
     );
 
-    _saveTimer?.cancel();
-    final viewportH2 = state.viewerSize.height;
-    _saveTimer = Timer(_saveDebounceDuration, () {
-      _layoutService.saveLayout(
-        state.groups,
-        lastPanelAloneSizes: _lastPanelAloneSizes,
-        viewportHeight: viewportH2 > 0 ? viewportH2 : null,
-      );
-    });
+    _scheduleSave();
   }
 
   static const double _highlightThickness = 40.0;
@@ -1452,11 +1429,7 @@ class DockNotifier extends Notifier<DockState> {
 
     _setState(
       DockState(
-        groups: [
-          for (final g in state.groups)
-            if (g.id == sourceGroupId) updatedGroup else g,
-          newGroup,
-        ],
+        groups: [..._replaceGroup(sourceGroupId, updatedGroup), newGroup],
         viewerSize: state.viewerSize,
       ),
     );
@@ -1552,11 +1525,7 @@ class DockNotifier extends Notifier<DockState> {
 
     _setState(
       DockState(
-        groups: [
-          for (final g in state.groups)
-            if (g.id == sourceGroupId) updatedGroup else g,
-          newGroup,
-        ],
+        groups: [..._replaceGroup(sourceGroupId, updatedGroup), newGroup],
         viewerSize: state.viewerSize,
       ),
     );
@@ -1605,10 +1574,7 @@ class DockNotifier extends Notifier<DockState> {
         vs,
       );
       _setState(DockState(
-        groups: [
-          for (final g in state.groups)
-            if (g.id == targetId) mergedGroup else if (g.id != sourceId) g,
-        ],
+        groups: _replaceAndRemoveGroup(targetId, mergedGroup, sourceId),
         viewerSize: vs,
       ));
       _addScanPending({
@@ -1676,10 +1642,7 @@ class DockNotifier extends Notifier<DockState> {
 
       _setState(
         DockState(
-          groups: [
-            for (final g in state.groups)
-              if (g.id == targetId) mergedGroup else if (g.id != sourceId) g,
-          ],
+          groups: _replaceAndRemoveGroup(targetId, mergedGroup, sourceId),
           viewerSize: vs,
         ),
       );
@@ -1719,10 +1682,7 @@ class DockNotifier extends Notifier<DockState> {
 
     _setState(
       DockState(
-        groups: [
-          for (final g in state.groups)
-            if (g.id == targetId) mergedGroup else if (g.id != sourceId) g,
-        ],
+        groups: _replaceAndRemoveGroup(targetId, mergedGroup, sourceId),
         viewerSize: vs,
       ),
     );
@@ -1752,10 +1712,7 @@ class DockNotifier extends Notifier<DockState> {
 
     _setState(
       DockState(
-        groups: [
-          for (final g in state.groups)
-            if (g.id == targetId) mergedGroup else if (g.id != sourceId) g,
-        ],
+        groups: _replaceAndRemoveGroup(targetId, mergedGroup, sourceId),
         viewerSize: state.viewerSize,
       ),
     );
@@ -1849,10 +1806,7 @@ class DockNotifier extends Notifier<DockState> {
       // 펼친 후 뷰포트 밖으로 벗어나��� 안쪽으로 클램핑
       if (!collapsing) updated = _clampToViewport(updated, vs);
       _setState(DockState(
-        groups: [
-          for (final g in state.groups)
-            if (g.id == group.id) updated else g,
-        ],
+        groups: _replaceGroup(group.id, updated),
         viewerSize: vs,
       ));
       return;
@@ -1920,20 +1874,14 @@ class DockNotifier extends Notifier<DockState> {
           );
       if (!collapsing) updated = _clampToViewport(updated, vs);
       _setState(DockState(
-        groups: [
-          for (final g in state.groups)
-            if (g.id == group.id) updated else g,
-        ],
+        groups: _replaceGroup(group.id, updated),
         viewerSize: vs,
       ));
     } else {
       // 가로 Split 또는 깊은 구조: 노드만 교체 (높이 변동 없음)
       final updated = group.copyWith(root: newRoot);
       _setState(DockState(
-        groups: [
-          for (final g in state.groups)
-            if (g.id == group.id) updated else g,
-        ],
+        groups: _replaceGroup(group.id, updated),
         viewerSize: vs,
       ));
     }
@@ -1960,10 +1908,10 @@ class DockNotifier extends Notifier<DockState> {
     if (nodePath.isEmpty) {
       // 엣지 패널의 루트 노드 — 접기만 표시 (높이 변동 없음)
       _setState(DockState(
-        groups: [
-          for (final g in state.groups)
-            if (g.id == group.id) g.copyWith(root: makeCollapsed(groupH)) else g,
-        ],
+        groups: _updateGroup(
+          group.id,
+          (g) => g.copyWith(root: makeCollapsed(groupH)),
+        ),
         viewerSize: vs,
       ));
       return;
@@ -1978,10 +1926,7 @@ class DockNotifier extends Notifier<DockState> {
       // 가로 Split: 노드만 교체
       final newRoot = replaceNodeAt(group.root, nodePath, makeCollapsed(groupH));
       _setState(DockState(
-        groups: [
-          for (final g in state.groups)
-            if (g.id == group.id) g.copyWith(root: newRoot) else g,
-        ],
+        groups: _updateGroup(group.id, (g) => g.copyWith(root: newRoot)),
         viewerSize: vs,
       ));
       return;
@@ -2029,10 +1974,7 @@ class DockNotifier extends Notifier<DockState> {
     );
     final newRoot = replaceNodeAt(group.root, parentPath, newSplit);
     _setState(DockState(
-      groups: [
-        for (final g in state.groups)
-          if (g.id == group.id) g.copyWith(root: newRoot) else g,
-      ],
+      groups: _updateGroup(group.id, (g) => g.copyWith(root: newRoot)),
       viewerSize: vs,
     ));
   }
@@ -2044,10 +1986,7 @@ class DockNotifier extends Notifier<DockState> {
     final updated = group.copyWith(pinned: !group.pinned);
     _setState(
       DockState(
-        groups: [
-          for (final g in state.groups)
-            if (g.id == groupId) updated else g,
-        ],
+        groups: _replaceGroup(groupId, updated),
         viewerSize: state.viewerSize,
       ),
     );
@@ -2103,23 +2042,20 @@ class DockNotifier extends Notifier<DockState> {
     // 루트 자체가 제거 대상 → 그룹 삭제
     if (newRoot == null) {
       _setState(DockState(
-        groups: [for (final g in state.groups) if (g.id != group.id) g],
+        groups: _removeGroup(group.id),
         viewerSize: state.viewerSize,
       ));
       return;
     }
 
     _setState(DockState(
-      groups: [
-        for (final g in state.groups)
-          if (g.id == group.id)
-            g.copyWith(
-              root: newRoot,
-              headerless: _resolveHeaderless(newRoot),
-            )
-          else
-            g,
-      ],
+      groups: _updateGroup(
+        group.id,
+        (g) => g.copyWith(
+          root: newRoot,
+          headerless: _resolveHeaderless(newRoot),
+        ),
+      ),
       viewerSize: state.viewerSize,
     ));
   }
@@ -2269,10 +2205,7 @@ class DockNotifier extends Notifier<DockState> {
     }
     _setState(
       DockState(
-        groups: [
-          for (final g in state.groups)
-            if (g.id != groupId) g,
-        ],
+        groups: _removeGroup(groupId),
         viewerSize: state.viewerSize,
       ),
     );
@@ -2309,8 +2242,8 @@ class DockNotifier extends Notifier<DockState> {
 
     // 3. 크기가 변경된 경우 Split 비율 보정 (작은 패널 픽셀 크기 유지)
     final DockNode newRoot;
-    if ((group.height - targetH).abs() > 0.5 ||
-        (group.width - targetW).abs() > 0.5) {
+    if ((group.height - targetH).abs() > _positionEpsilon ||
+        (group.width - targetW).abs() > _positionEpsilon) {
       newRoot = _fixSplitRatiosForResize(
         group.root,
         Size(group.width, group.height),

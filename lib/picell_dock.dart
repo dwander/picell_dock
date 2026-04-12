@@ -14,5 +14,8 @@ export 'src/providers/dock_settings_provider.dart';
 export 'src/providers/panel_zoom_provider.dart';
 export 'src/theme/dock_color_scheme.dart';
 export 'src/theme/dock_theme.dart';
+export 'src/widgets/border_glow_effect.dart';
+export 'src/widgets/border_scan_effect.dart';
+export 'src/widgets/edge_dock_effect.dart';
 export 'src/widgets/edge_glow_decoration.dart';
 export 'src/widgets/panel_zoom_wrapper.dart';
