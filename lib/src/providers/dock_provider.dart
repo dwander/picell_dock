@@ -95,8 +95,31 @@ class DockNotifier extends Notifier<DockState> {
       if (maxId >= 0) _nextGroupId = maxId + 1;
 
       _lastPanelAloneSizes.addAll(data.lastPanelAloneSizes);
+
+      // 저장 시 뷰포트 높이와 현재 뷰포트 높이가 다르면 엣지 패널 Split 비율 보정.
+      // 이를 통해 최대화 상태에서 저장된 비율이 일반 창 크기에서 잘못 적용되는
+      // 문제(재시작 시 고정 패널 크기 변동)를 방지한다.
+      final savedVH = data.savedViewportHeight;
+      final currentVH = state.viewerSize.height;
+      final List<DockGroup> groups;
+      if (savedVH != null &&
+          currentVH > 0 &&
+          (savedVH - currentVH).abs() > 0.5) {
+        groups = [
+          for (final g in data.groups)
+            if (g.dockedEdge != null)
+              g.copyWith(
+                root: _adjustEdgeSplitRatios(g.root, savedVH, currentVH),
+              )
+            else
+              g,
+        ];
+      } else {
+        groups = data.groups;
+      }
+
       // 그룹 변경을 먼저 적용 (layoutSettled는 아직 false).
-      _setState(DockState(groups: data.groups, viewerSize: state.viewerSize));
+      _setState(DockState(groups: groups, viewerSize: state.viewerSize));
     }
     // layoutSettled를 다음 프레임에 설정.
     // 같은 프레임에 설정하면 Flutter가 두 setState를 배치(batch)해서
@@ -145,10 +168,12 @@ class DockNotifier extends Notifier<DockState> {
     );
 
     _saveTimer?.cancel();
+    final viewportH = state.viewerSize.height;
     _saveTimer = Timer(_saveDebounceDuration, () {
       _layoutService.saveLayout(
         state.groups,
         lastPanelAloneSizes: _lastPanelAloneSizes,
+        viewportHeight: viewportH > 0 ? viewportH : null,
       );
     });
   }
@@ -1308,10 +1333,12 @@ class DockNotifier extends Notifier<DockState> {
     );
 
     _saveTimer?.cancel();
+    final viewportH2 = state.viewerSize.height;
     _saveTimer = Timer(_saveDebounceDuration, () {
       _layoutService.saveLayout(
         state.groups,
         lastPanelAloneSizes: _lastPanelAloneSizes,
+        viewportHeight: viewportH2 > 0 ? viewportH2 : null,
       );
     });
   }
@@ -2255,11 +2282,47 @@ class DockNotifier extends Notifier<DockState> {
   /// 그룹을 뷰포트 안쪽으로 클램핑.
   ///
   /// 도킹/합치기 후 패널이 뷰포트 밖으로 벗어나는 경우 안전하게 밀어넣음.
+  ///
+  /// **위치 조정 우선** 정책:
+  /// 크기를 줄이기 전에 위치를 이동시켜 원래 크기를 최대한 보존한다.
+  /// 뷰포트보다 큰 경우에만 크기를 축소하며, Split 비율도 함께 보정한다.
   DockGroup _clampToViewport(DockGroup group, Size vs) {
-    final clamped = group.displayRect(vs.width, vs.height);
+    // 1. 크기 제한: 뷰포트보다 큰 경우에만 축소 (최솟값 보장)
+    final targetW = group.width > vs.width
+        ? vs.width.clamp(_config.groupMinWidth, double.infinity)
+        : group.width;
+    final targetH = group.height > vs.height
+        ? vs.height.clamp(_config.groupMinHeight, double.infinity)
+        : group.height;
+
+    // 2. 절대 위치 계산 후 위치 보정으로 뷰포트 내 맞추기 (크기 변경보다 우선)
+    var x = group.absoluteX(vs.width);
+    var y = group.absoluteY(vs.height);
+
+    if (x < 0) x = 0;
+    if (x + targetW > vs.width) x = vs.width - targetW;
+    if (x < 0) x = 0; // targetW == vs.width 엣지 케이스
+
+    if (y < 0) y = 0;
+    if (y + targetH > vs.height) y = vs.height - targetH;
+    if (y < 0) y = 0; // targetH == vs.height 엣지 케이스
+
+    // 3. 크기가 변경된 경우 Split 비율 보정 (작은 패널 픽셀 크기 유지)
+    final DockNode newRoot;
+    if ((group.height - targetH).abs() > 0.5 ||
+        (group.width - targetW).abs() > 0.5) {
+      newRoot = _fixSplitRatiosForResize(
+        group.root,
+        Size(group.width, group.height),
+        Size(targetW, targetH),
+      );
+    } else {
+      newRoot = group.root;
+    }
+
     return group
-        .copyWith(width: clamped.width, height: clamped.height)
-        .updateFromAbsolute(clamped.left, clamped.top, vs.width, vs.height);
+        .copyWith(root: newRoot, width: targetW, height: targetH)
+        .updateFromAbsolute(x, y, vs.width, vs.height);
   }
 
 }

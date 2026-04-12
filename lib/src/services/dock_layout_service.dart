@@ -8,14 +8,20 @@ import 'dart:ui';
 
 import '../models/dock_group.dart';
 
-/// 레이아웃 로드 결과: 그룹 목록 + 패널별 마지막 단독 크기.
+/// 레이아웃 로드 결과: 그룹 목록 + 패널별 마지막 단독 크기 + 저장 시 뷰포트 높이.
 class DockLayoutData {
   final List<DockGroup> groups;
   final Map<String, Size> lastPanelAloneSizes;
 
+  /// 레이아웃이 저장될 당시의 뷰포트 높이.
+  ///
+  /// 재시작 시 엣지 패널 Split 비율을 현재 뷰포트에 맞게 재조정하는 데 사용.
+  final double? savedViewportHeight;
+
   const DockLayoutData({
     required this.groups,
     this.lastPanelAloneSizes = const {},
+    this.savedViewportHeight,
   });
 }
 
@@ -82,7 +88,14 @@ class DockLayoutService {
         );
       }
 
-      return DockLayoutData(groups: groups, lastPanelAloneSizes: sizes);
+      final savedViewportHeight =
+          (json['viewportHeight'] as num?)?.toDouble();
+
+      return DockLayoutData(
+        groups: groups,
+        lastPanelAloneSizes: sizes,
+        savedViewportHeight: savedViewportHeight,
+      );
     } catch (e, st) {
       dev.log(
         '레이아웃 로드 실패',
@@ -94,10 +107,11 @@ class DockLayoutService {
     }
   }
 
-  /// 현재 레이아웃(그룹 목록 + 패널별 마지막 단독 크기)을 저장.
+  /// 현재 레이아웃(그룹 목록 + 패널별 마지막 단독 크기 + 뷰포트 높이)을 저장.
   Future<void> saveLayout(
     List<DockGroup> groups, {
     Map<String, Size> lastPanelAloneSizes = const {},
+    double? viewportHeight,
   }) async {
     final path = await _getFilePath();
     final file = File(path);
@@ -122,6 +136,9 @@ class DockLayoutService {
     existing['currentLayout'] = {
       'groups': [for (final g in groups) g.toJson()],
     };
+    if (viewportHeight != null) {
+      existing['viewportHeight'] = viewportHeight;
+    }
     existing['lastPanelAloneSizes'] = {
       for (final entry in lastPanelAloneSizes.entries)
         entry.key: {
