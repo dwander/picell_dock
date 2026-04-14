@@ -48,7 +48,7 @@ class DockGroup extends Equatable {
 
   /// 최대화 이전 상태 저장 (복귀용).
   ///
-  /// null이면 최대화 상태가 아님. 앱 재시작 시 초기화되므로 직렬화하지 않음.
+  /// null이면 최대화 상태가 아님. 앱 재시작 시에도 유지되도록 직렬화한다.
   /// [dockedEdge]는 최대화 전 엣지 도킹 상태였을 경우 복귀에 사용.
   final ({
     double left,
@@ -257,6 +257,14 @@ class DockGroup extends Equatable {
     if (dockedEdge != null) 'dockedEdge': dockedEdge!.name,
     if (pinned) 'pinned': true,
     if (headerless) 'headerless': true,
+    if (savedState != null) 'savedState': {
+      'left': savedState!.left,
+      'top': savedState!.top,
+      'width': savedState!.width,
+      'height': savedState!.height,
+      if (savedState!.dockedEdge != null)
+        'dockedEdge': savedState!.dockedEdge!.name,
+    },
   };
 
   factory DockGroup.fromJson(Map<String, dynamic> json) => DockGroup(
@@ -274,7 +282,29 @@ class DockGroup extends Equatable {
         : null,
     pinned: json['pinned'] as bool? ?? false,
     headerless: json['headerless'] as bool? ?? false,
+    savedState: _savedStateFromJson(json['savedState']),
   );
+
+  static ({
+    double left,
+    double top,
+    double width,
+    double height,
+    ViewportEdge? dockedEdge,
+  })? _savedStateFromJson(Object? raw) {
+    if (raw is! Map<String, dynamic>) return null;
+    return (
+      left: (raw['left'] as num).toDouble(),
+      top: (raw['top'] as num).toDouble(),
+      width: (raw['width'] as num).toDouble(),
+      height: (raw['height'] as num).toDouble(),
+      dockedEdge: raw['dockedEdge'] != null
+          ? ViewportEdge.values
+              .where((e) => e.name == raw['dockedEdge'])
+              .firstOrNull
+          : null,
+    );
+  }
 
   @override
   List<Object?> get props => [
