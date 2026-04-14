@@ -1586,7 +1586,11 @@ class DockNotifier extends Notifier<DockState> {
 
     final docked = group.copyWith(dockedEdge: edge, width: clampedSize);
 
-    _setState(state.copyWith(groups: _replaceGroup(groupId, docked)));
+    _setState(state.copyWith(
+      groups: _replaceGroup(groupId, docked),
+      draggingGroupId: null,
+      dockPreview: null,
+    ));
     _onLayoutChanged();
   }
 
