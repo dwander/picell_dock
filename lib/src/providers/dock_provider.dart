@@ -171,6 +171,12 @@ class DockNotifier extends Notifier<DockState> {
 
       // 그룹 변경을 먼저 적용 (layoutSettled는 아직 false).
       _setState(DockState(groups: groups, viewerSize: state.viewerSize));
+
+      // 저장된 레이아웃의 최대화 그룹은 저장 시점의 뷰포트 기준 위치/크기이므로
+      // 현재 뷰포트에 맞게 재계산 (창 크기를 다르게 실행/복귀할 때 overflow 방지).
+      if (state.viewerSize != Size.zero) {
+        _recomputeMaximizedGroups();
+      }
     }
     // layoutSettled를 다음 프레임에 설정.
     // 같은 프레임에 설정하면 Flutter가 두 setState를 배치(batch)해서
