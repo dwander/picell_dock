@@ -160,7 +160,11 @@ class DockNotifier extends Notifier<DockState> {
           for (final g in data.groups)
             if (g.dockedEdge != null)
               g.copyWith(
-                root: _adjustEdgeSplitRatios(g.root, savedVH, currentVH),
+                root: _fixSplitRatiosForResize(
+                  g.root,
+                  Size(g.width, savedVH),
+                  Size(g.width, currentVH),
+                ),
               )
             else
               g,
@@ -448,10 +452,10 @@ class DockNotifier extends Notifier<DockState> {
             for (final g in state.groups)
               if (g.dockedEdge != null)
                 g.copyWith(
-                  root: _adjustEdgeSplitRatios(
+                  root: _fixSplitRatiosForResize(
                     g.root,
-                    oldSize.height,
-                    size.height,
+                    Size(g.width, oldSize.height),
+                    Size(g.width, size.height),
                   ),
                 )
               else
@@ -469,54 +473,41 @@ class DockNotifier extends Notifier<DockState> {
     _recomputeMaximizedGroups();
   }
 
-  /// 엣지 패널의 세로 Split에서 가장 큰 자식만 크기 변동을 흡수하도록
-  /// ratios를 재계산.
+  /// nodePath를 따라 내려가 해당 DockSplit의 실제 렌더 크기를 계산.
   ///
-  /// 가로 Split이나 Split이 아닌 노드는 그대로 반환.
-  DockNode _adjustEdgeSplitRatios(
-    DockNode node,
-    double oldHeight,
-    double newHeight,
+  /// 엣지 패널(displayRect 기준)과 플로팅 패널(group 크기 기준) 모두 지원.
+  /// 중첩 Split에서 각 레벨의 separator 공간과 ratio를 적용해 정확한 크기를 계산.
+  double _computeSplitSize(
+    DockGroup group,
+    List<int> nodePath,
+    SplitAxis splitAxis,
   ) {
-    if (node is! DockSplit) return node;
-    if (oldHeight <= 0 || newHeight <= 0) return node;
-
-    // 재귀적으로 하위 Split도 처리
-    final adjustedChildren = [
-      for (final child in node.children)
-        _adjustEdgeSplitRatios(child, oldHeight, newHeight),
-    ];
-
-    // 가로 Split은 높이 변동과 무관 — 자식만 재귀 처리
-    if (node.axis == SplitAxis.horizontal) {
-      return DockSplit(
-        axis: node.axis,
-        children: adjustedChildren,
-        ratios: node.ratios,
-      );
-    }
-
-    // 세로 Split: 절대 크기 복원 → 가장 큰 자식이 변동분 흡수
-    final delta = newHeight - oldHeight;
-    final sizes = [
-      for (final r in node.ratios) r * oldHeight,
-    ];
-
-    // 가장 큰 자식 찾기
-    int largestIdx = 0;
-    for (int i = 1; i < sizes.length; i++) {
-      if (sizes[i] > sizes[largestIdx]) largestIdx = i;
-    }
-
-    // 가장 큰 자식에 변동분 흡수
-    sizes[largestIdx] = (sizes[largestIdx] + delta)
-        .clamp(_config.groupMinHeight, double.infinity);
-
-    return DockSplit(
-      axis: node.axis,
-      children: adjustedChildren,
-      ratios: _ratiosFromSizes(sizes),
+    final displayRect = state.displayRects[group.id];
+    Size available = Size(
+      displayRect?.width ?? group.width,
+      displayRect?.height ?? (group.dockedEdge != null
+          ? state.viewerSize.height
+          : group.height),
     );
+
+    DockNode current = group.root;
+    for (final idx in nodePath) {
+      if (current is! DockSplit) break;
+      final isVertical = current.axis == SplitAxis.vertical;
+      final sepSpace =
+          (current.children.length - 1) * _config.splitSeparatorThickness;
+      final main = isVertical ? available.height : available.width;
+      final cross = isVertical ? available.width : available.height;
+      final content = (main - sepSpace).clamp(0.0, double.infinity);
+      final childMain = current.ratios[idx] * content;
+      available =
+          isVertical ? Size(cross, childMain) : Size(childMain, cross);
+      current = current.children[idx];
+    }
+
+    return splitAxis == SplitAxis.vertical
+        ? available.height
+        : available.width;
   }
 
   /// 세로 Split 리사이즈 시 비율 보정.
@@ -545,20 +536,6 @@ class DockNotifier extends Notifier<DockState> {
 
     if (oldMain <= 0 || newMain <= 0) return node;
 
-    // 재귀: 하위 Split도 처리
-    final adjustedChildren = [
-      for (int i = 0; i < node.children.length; i++)
-        _fixSplitRatiosForResize(
-          node.children[i],
-          node.axis == SplitAxis.vertical
-              ? Size(oldCross, oldMain * node.ratios[i])
-              : Size(oldMain * node.ratios[i], oldCross),
-          node.axis == SplitAxis.vertical
-              ? Size(newCross, newMain * node.ratios[i])
-              : Size(newMain * node.ratios[i], newCross),
-        ),
-    ];
-
     // 세퍼레이터 제외한 콘텐츠 크기로 계산
     final collapsedH = _collapsedNodeHeight;
     final separatorSpace =
@@ -566,10 +543,11 @@ class DockNotifier extends Notifier<DockState> {
     final oldContent = oldMain - separatorSpace;
     final newContent = newMain - separatorSpace;
 
+    // 현재 레벨의 각 자식 현재 크기 계산 (collapse 고려)
     final sizes = <double>[];
     for (int i = 0; i < node.ratios.length; i++) {
       final isCollapsed = node.axis == SplitAxis.vertical &&
-          adjustedChildren[i].isCollapsed;
+          node.children[i].isCollapsed;
       sizes.add(isCollapsed ? collapsedH : node.ratios[i] * oldContent);
     }
 
@@ -577,7 +555,7 @@ class DockNotifier extends Notifier<DockState> {
     int largestIdx = -1;
     for (int i = 0; i < sizes.length; i++) {
       final isCollapsed = node.axis == SplitAxis.vertical &&
-          adjustedChildren[i].isCollapsed;
+          node.children[i].isCollapsed;
       if (!isCollapsed &&
           (largestIdx == -1 || sizes[i] > sizes[largestIdx])) {
         largestIdx = i;
@@ -593,13 +571,29 @@ class DockNotifier extends Notifier<DockState> {
     // 가장 큰 자식이 남은 콘텐츠 공간 전부 차지
     final minSize = node.axis == SplitAxis.vertical
         ? _config.groupMinHeight : _config.groupMinWidth;
-    sizes[largestIdx] = (newContent - fixedTotal)
+    final newSizes = List<double>.from(sizes);
+    newSizes[largestIdx] = (newContent - fixedTotal)
         .clamp(minSize, double.infinity);
+
+    // 재귀: 하위 Split도 처리 (현재 레벨의 정확한 newSize를 전달해야
+    // 하위 레벨에서 불필요한 비율 재조정이 일어나지 않음)
+    final adjustedChildren = [
+      for (int i = 0; i < node.children.length; i++)
+        _fixSplitRatiosForResize(
+          node.children[i],
+          node.axis == SplitAxis.vertical
+              ? Size(oldCross, sizes[i])
+              : Size(sizes[i], oldCross),
+          node.axis == SplitAxis.vertical
+              ? Size(newCross, newSizes[i])
+              : Size(newSizes[i], newCross),
+        ),
+    ];
 
     return DockSplit(
       axis: node.axis,
       children: adjustedChildren,
-      ratios: _ratiosFromSizes(sizes),
+      ratios: _ratiosFromSizes(newSizes),
     );
   }
 
@@ -795,7 +789,7 @@ class DockNotifier extends Notifier<DockState> {
   ///
   /// [nodePath]는 대상 Split 노드의 경로,
   /// [separatorIndex]는 조절할 세퍼레이터 위치 (children[index]와 [index+1] 사이),
-  /// [delta]는 픽셀 단위 이동량, [totalSize]는 Split 방향의 전체 크기.
+  /// [delta]는 픽셀 단위 이동량, [totalSize]는 호출자가 파악한 크기 (무시됨).
   void resizeSplit(
     String groupId, {
     required List<int> nodePath,
@@ -813,14 +807,20 @@ class DockNotifier extends Notifier<DockState> {
     final ratioB = splitNode.ratios[i + 1];
     final combinedRatio = ratioA + ratioB;
 
+    // 중첩 Split에서 group.height/width가 아닌 해당 Split의 실제 렌더 크기 사용.
+    // group.height를 쓰면 내부 중첩 Split에서 비율이 희석되어 드래그가 느려짐.
+    final actualSize = _computeSplitSize(group, nodePath, splitNode.axis);
+    final effectiveTotalSize = actualSize > 0 ? actualSize : totalSize;
+
     // 픽셀 기반 최소 크기를 ratio로 변환
     final minPx = splitNode.axis == SplitAxis.vertical
         ? _config.groupMinHeight
         : _config.groupMinWidth;
-    final minRatio = totalSize > 0 ? minPx / totalSize : 0.1;
+    final minRatio =
+        effectiveTotalSize > 0 ? minPx / effectiveTotalSize : 0.1;
 
     // delta를 비율로 변환
-    final deltaRatio = delta / totalSize;
+    final deltaRatio = delta / effectiveTotalSize;
     final effectiveMin = math.min(minRatio, combinedRatio / 2);
     final newRatioA =
         (ratioA + deltaRatio).clamp(effectiveMin, combinedRatio - effectiveMin);
