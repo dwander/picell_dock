@@ -1772,12 +1772,26 @@ class DockNotifier extends Notifier<DockState> {
     // ── 내부 노드 도킹: 그룹 크기 유지, 내부에서만 Split ──
     if (nodePath.isNotEmpty) {
       final targetNode = getNodeAt(target.root, nodePath);
+
+      // 실제 크기 기반 비율 계산 (하드코딩 0.5/0.5 제거)
+      final srcRect = _groupRect(source);
+      final tgtGroupRect = _groupRect(target);
+      final tgtNodeRect = calcNodeRectAt(target.root, tgtGroupRect, nodePath);
+      final srcSize = axis == SplitAxis.horizontal
+          ? srcRect.width : srcRect.height;
+      final tgtSize = axis == SplitAxis.horizontal
+          ? tgtNodeRect.width : tgtNodeRect.height;
+      final totalSize = srcSize + tgtSize;
+      final srcRatio = totalSize > 0 ? srcSize / totalSize : 0.5;
+
       final newSplit = DockSplit(
         axis: axis,
         children: sourceFirst
             ? [source.root, targetNode]
             : [targetNode, source.root],
-        ratios: const [0.5, 0.5],
+        ratios: sourceFirst
+            ? [srcRatio, 1.0 - srcRatio]
+            : [1.0 - srcRatio, srcRatio],
       );
       final newRoot = replaceNodeAt(target.root, nodePath, newSplit);
       final mergedGroup = _clampToViewport(
