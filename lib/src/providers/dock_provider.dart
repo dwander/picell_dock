@@ -1072,6 +1072,8 @@ class DockNotifier extends Notifier<DockState> {
         viewerSize: state.viewerSize,
       ),
     );
+    // 인접 패널 리사이즈 중이면 최대화 그룹도 실시간으로 새 자유 영역에 맞춰 따라감.
+    _recomputeMaximizedGroups();
   }
 
   /// 리사이즈 종료: 앵커 재계산 + 접힌 노드 비율 보정.
@@ -1321,7 +1323,12 @@ class DockNotifier extends Notifier<DockState> {
     }
 
     if (!identical(groups, state.groups)) {
-      _setState(DockState(groups: groups, viewerSize: vs));
+      _setState(DockState(
+        groups: groups,
+        resizingGroupId: state.resizingGroupId,
+        draggingGroupId: state.draggingGroupId,
+        viewerSize: vs,
+      ));
     }
   }
 
@@ -1640,6 +1647,8 @@ class DockNotifier extends Notifier<DockState> {
         viewerSize: state.viewerSize,
       ),
     );
+    // 엣지 패널 리사이즈 중이면 최대화 그룹도 실시간으로 새 자유 영역에 맞춰 따라감.
+    _recomputeMaximizedGroups();
 
     _scheduleSave();
   }

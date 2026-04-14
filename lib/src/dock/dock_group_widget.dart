@@ -231,11 +231,15 @@ class _DockGroupWidgetState extends ConsumerState<DockGroupWidget>
 
     final slideOffset = _computeSlideOffset(rect, viewerSize);
 
+    // 최대화 그룹은 뱃지를 숨기므로 overhang 불필요 — 0으로 줄여서 인접 패널의
+    // 리사이즈 핸들이 자기 영역에 덮이지 않도록 한다.
+    final overhang = group.savedState != null ? 0.0 : _badgeOverhang;
+
     // 뱃지가 좌우로 돌출되므로 호버 영역을 양쪽으로 확장
     return Positioned(
-      left: rect.left - _badgeOverhang,
+      left: rect.left - overhang,
       top: rect.top,
-      width: rect.width + _badgeOverhang * 2,
+      width: rect.width + overhang * 2,
       height: rect.height,
       child: AnimatedBuilder(
         animation: _cleanModeCurve,
@@ -254,7 +258,7 @@ class _DockGroupWidgetState extends ConsumerState<DockGroupWidget>
             children: [
               // 패널 본체 — Padding으로 중앙 배치
               Padding(
-                padding: EdgeInsets.symmetric(horizontal: _badgeOverhang),
+                padding: EdgeInsets.symmetric(horizontal: overhang),
                 child: BorderGlowEffect(
                   controller: _focusFlashController,
                   color: cs.borderFocused,
@@ -330,9 +334,12 @@ class _DockGroupWidgetState extends ConsumerState<DockGroupWidget>
                                 ),
                               ),
                             ),
-                          // 플로팅 그룹에서 모든 패널이 접혀 있으면 리사이즈 불가
-                          if (group.dockedEdge != null ||
-                              !group.root.isAllCollapsed)
+                          // 리사이즈 핸들 표시 조건:
+                          // - 플로팅 그룹에서 모든 패널이 접혀 있으면 불가
+                          // - 최대화 상태면 불가 (윈도우 최대화처럼 가장자리 리사이즈 잠금)
+                          if ((group.dockedEdge != null ||
+                                  !group.root.isAllCollapsed) &&
+                              group.savedState == null)
                             DockResizeHandles(
                               groupId: group.id,
                               viewerSize: viewerSize,
