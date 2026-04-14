@@ -478,11 +478,11 @@ class _DraggableTabBarState extends ConsumerState<_DraggableTabBar>
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
                                   // 최대화/복귀 토글 버튼
-                                  if (showMaximize)
+                                  if (showMaximize) ...[
                                     _HeaderActionButton(
                                       icon: isMaximized
                                           ? PhosphorIconsRegular.arrowsIn
-                                          : PhosphorIconsRegular.arrowsOut,
+                                          : PhosphorIconsRegular.square,
                                       tooltip: isMaximized ? '이전 크기로' : '최대화',
                                       onPressed: () {
                                         final notifier =
@@ -494,6 +494,8 @@ class _DraggableTabBarState extends ConsumerState<_DraggableTabBar>
                                         }
                                       },
                                     ),
+                                    const SizedBox(width: 4),
+                                  ],
                                   // 접기 버튼 숨김 조건:
                                   // - 루트 노드(스플릿 아닌 단일 패널)에서는 엣지만 숨김
                                   // - 펼쳐진 패널이 자신뿐이면 접기 불가 (엣지/플로팅 공통)

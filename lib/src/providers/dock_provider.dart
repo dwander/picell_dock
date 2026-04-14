@@ -1015,9 +1015,14 @@ class DockNotifier extends Notifier<DockState> {
     // 뷰포트 높이로 덮어써져 이후 undock 시 패널이 비정상적으로 커짐.
     final group = _findGroup(state.groups, groupId);
     if (group?.dockedEdge == null) _commitDisplayRect(groupId);
+    // 사용자가 드래그로 리사이즈를 시작하면 최대화 상태 해제
+    // (토글 버튼 아이콘도 즉시 '최대화'로 전환).
+    final groups = group?.savedState != null
+        ? _updateGroup(groupId, (g) => g.copyWith(clearSavedState: true))
+        : state.groups;
     _setState(
       DockState(
-        groups: state.groups,
+        groups: groups,
         resizingGroupId: groupId,
         viewerSize: state.viewerSize,
       ),

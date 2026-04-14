@@ -394,6 +394,11 @@ class _GroupBadgeButtons extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // 최대화 상태에서는 핀/닫기 뱃지 숨김 — 화면을 거의 덮어 호버 영역이 과도해짐.
+    if (group.savedState != null) {
+      return const SizedBox.shrink();
+    }
+
     final delegate = DockTheme.of(context).panelDelegate;
     final cs = DockTheme.of(context).colorScheme;
     final panelIds = group.root.collectPanelIds();
