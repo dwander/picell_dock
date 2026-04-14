@@ -790,6 +790,37 @@ class DockNotifier extends Notifier<DockState> {
   /// [nodePath]는 대상 Split 노드의 경로,
   /// [separatorIndex]는 조절할 세퍼레이터 위치 (children[index]와 [index+1] 사이),
   /// [delta]는 픽셀 단위 이동량, [totalSize]는 호출자가 파악한 크기 (무시됨).
+  /// Split 핸들 드래그 시작: 해당 그룹을 resizing 상태로 표시.
+  ///
+  /// resizingGroupId가 설정되면 auto avoidance에서 제외되어 drag 중
+  /// displayRect·group 크기가 변동하며 비율이 꼬이는 현상을 방지한다.
+  void beginSplitResize(String groupId) {
+    if (state.resizingGroupId == groupId) return;
+    _setState(
+      DockState(
+        groups: state.groups,
+        draggingGroupId: state.draggingGroupId,
+        resizingGroupId: groupId,
+        dockPreview: state.dockPreview,
+        viewerSize: state.viewerSize,
+      ),
+    );
+  }
+
+  /// Split 핸들 드래그 종료: resizing 상태 해제.
+  void endSplitResize() {
+    if (state.resizingGroupId == null) return;
+    _setState(
+      DockState(
+        groups: state.groups,
+        draggingGroupId: state.draggingGroupId,
+        resizingGroupId: null,
+        dockPreview: state.dockPreview,
+        viewerSize: state.viewerSize,
+      ),
+    );
+  }
+
   void resizeSplit(
     String groupId, {
     required List<int> nodePath,
@@ -803,32 +834,33 @@ class DockNotifier extends Notifier<DockState> {
     if (splitNode is! DockSplit) return;
 
     final i = separatorIndex;
-    final ratioA = splitNode.ratios[i];
-    final ratioB = splitNode.ratios[i + 1];
-    final combinedRatio = ratioA + ratioB;
 
-    // 중첩 Split에서 group.height/width가 아닌 해당 Split의 실제 렌더 크기 사용.
-    // group.height를 쓰면 내부 중첩 Split에서 비율이 희석되어 드래그가 느려짐.
+    // 중첩 Split에서 그룹 전체가 아닌 해당 Split의 실제 렌더 크기 사용.
     final actualSize = _computeSplitSize(group, nodePath, splitNode.axis);
     final effectiveTotalSize = actualSize > 0 ? actualSize : totalSize;
+    final separatorSpace =
+        (splitNode.children.length - 1) * _config.splitSeparatorThickness;
+    final content = effectiveTotalSize - separatorSpace;
+    if (content <= 0) return;
 
-    // 픽셀 기반 최소 크기를 ratio로 변환
+    // 각 자식의 현재 픽셀 크기 (separator 제외)
+    final sizes = [for (final r in splitNode.ratios) r * content];
+
+    // 사용자 의도: 잡은 핸들만 움직이고 나머지 핸들은 고정.
+    // 따라서 인접 두 자식의 경계만 delta만큼 이동하고 나머지 자식의
+    // 픽셀 크기는 그대로 유지한다.
     final minPx = splitNode.axis == SplitAxis.vertical
         ? _config.groupMinHeight
         : _config.groupMinWidth;
-    final minRatio =
-        effectiveTotalSize > 0 ? minPx / effectiveTotalSize : 0.1;
+    final combined = sizes[i] + sizes[i + 1];
+    final minSize = math.min(minPx, combined / 2);
+    final newSizeA = (sizes[i] + delta).clamp(minSize, combined - minSize);
 
-    // delta를 비율로 변환
-    final deltaRatio = delta / effectiveTotalSize;
-    final effectiveMin = math.min(minRatio, combinedRatio / 2);
-    final newRatioA =
-        (ratioA + deltaRatio).clamp(effectiveMin, combinedRatio - effectiveMin);
-    final newRatioB = combinedRatio - newRatioA;
+    sizes[i] = newSizeA;
+    sizes[i + 1] = combined - newSizeA;
 
-    final newRatios = [...splitNode.ratios];
-    newRatios[i] = newRatioA;
-    newRatios[i + 1] = newRatioB;
+    // 픽셀 → 비율 변환 (sum=1 정규화로 float drift 방지)
+    final newRatios = _ratiosFromSizes(sizes);
 
     final newSplit = DockSplit(
       axis: splitNode.axis,

@@ -295,6 +295,13 @@ class _DraggableSplitSeparatorState
       onExit: (_) => setState(() => _isHovered = false),
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
+        onPanStart: dc == null || disabled
+            ? null
+            : (_) {
+                // drag 중 auto avoidance가 group 크기를 변경하여 비율이
+                // 꼬이는 현상을 방지하기 위해 resizing 상태 설정.
+                ref.read(dockProvider.notifier).beginSplitResize(dc.groupId);
+              },
         onPanUpdate: dc == null || disabled
             ? null
             : (details) {
@@ -317,6 +324,16 @@ class _DraggableSplitSeparatorState
                       delta: delta,
                       totalSize: totalSize,
                     );
+              },
+        onPanEnd: dc == null || disabled
+            ? null
+            : (_) {
+                ref.read(dockProvider.notifier).endSplitResize();
+              },
+        onPanCancel: dc == null || disabled
+            ? null
+            : () {
+                ref.read(dockProvider.notifier).endSplitResize();
               },
         child: SizedBox(
           width: isHorizontal ? DockTheme.of(context).config.splitSeparatorThickness : null,
