@@ -844,7 +844,7 @@ class DockNotifier extends Notifier<DockState> {
     if (content <= 0) return;
 
     // 각 자식의 현재 픽셀 크기 (separator 제외)
-    final sizes = [for (final r in splitNode.ratios) r * content];
+    final oldSizes = [for (final r in splitNode.ratios) r * content];
 
     // 사용자 의도: 잡은 핸들만 움직이고 나머지 핸들은 고정.
     // 따라서 인접 두 자식의 경계만 delta만큼 이동하고 나머지 자식의
@@ -852,19 +852,41 @@ class DockNotifier extends Notifier<DockState> {
     final minPx = splitNode.axis == SplitAxis.vertical
         ? _config.groupMinHeight
         : _config.groupMinWidth;
-    final combined = sizes[i] + sizes[i + 1];
+    final combined = oldSizes[i] + oldSizes[i + 1];
     final minSize = math.min(minPx, combined / 2);
-    final newSizeA = (sizes[i] + delta).clamp(minSize, combined - minSize);
+    final newSizeA = (oldSizes[i] + delta).clamp(minSize, combined - minSize);
+    final actualDelta = newSizeA - oldSizes[i];
 
-    sizes[i] = newSizeA;
-    sizes[i + 1] = combined - newSizeA;
+    final newSizes = [...oldSizes];
+    newSizes[i] = newSizeA;
+    newSizes[i + 1] = combined - newSizeA;
+
+    // 인접 자식이 같은 축의 DockSplit이면, 그 내부에서 핸들 쪽 경계
+    // 자식이 delta를 흡수하고 다른 내부 자식의 픽셀 크기는 유지한다.
+    // (미적용 시 중첩 구조에서 외부 핸들 드래그가 내부 자식을 비율
+    // 리사이즈시켜 사용자가 원하지 않는 크기 변화 발생)
+    final newChildren = [...splitNode.children];
+    newChildren[i] = _absorbSplitDelta(
+      splitNode.children[i],
+      actualDelta,
+      splitNode.axis,
+      fromStart: false,
+      oldSize: oldSizes[i],
+    );
+    newChildren[i + 1] = _absorbSplitDelta(
+      splitNode.children[i + 1],
+      -actualDelta,
+      splitNode.axis,
+      fromStart: true,
+      oldSize: oldSizes[i + 1],
+    );
 
     // 픽셀 → 비율 변환 (sum=1 정규화로 float drift 방지)
-    final newRatios = _ratiosFromSizes(sizes);
+    final newRatios = _ratiosFromSizes(newSizes);
 
     final newSplit = DockSplit(
       axis: splitNode.axis,
-      children: splitNode.children,
+      children: newChildren,
       ratios: newRatios,
     );
 
@@ -876,6 +898,48 @@ class DockNotifier extends Notifier<DockState> {
       ),
     );
     _onLayoutChanged();
+  }
+
+  /// 중첩 DockSplit에서 핸들에 가까운 경계 자식이 [delta]를 흡수하도록
+  /// 내부 ratios를 재계산한다.
+  ///
+  /// [fromStart]가 true면 첫 번째 자식이 흡수 (핸들이 node의 시작쪽),
+  /// false면 마지막 자식이 흡수. 축이 다르거나 DockSplit이 아니면
+  /// 그대로 반환.
+  DockNode _absorbSplitDelta(
+    DockNode node,
+    double delta,
+    SplitAxis parentAxis, {
+    required bool fromStart,
+    required double oldSize,
+  }) {
+    if (node is! DockSplit || node.axis != parentAxis) return node;
+
+    final sepSpace =
+        (node.children.length - 1) * _config.splitSeparatorThickness;
+    final oldContent = oldSize - sepSpace;
+    if (oldContent <= 0) return node;
+
+    final innerOldSizes = [for (final r in node.ratios) r * oldContent];
+    final absorbIdx = fromStart ? 0 : node.children.length - 1;
+    final innerNewSizes = [...innerOldSizes];
+    innerNewSizes[absorbIdx] += delta;
+
+    // 재귀: 흡수한 자식이 또 DockSplit이면 같은 방향으로 전파
+    final innerNewChildren = [...node.children];
+    innerNewChildren[absorbIdx] = _absorbSplitDelta(
+      node.children[absorbIdx],
+      delta,
+      parentAxis,
+      fromStart: fromStart,
+      oldSize: innerOldSizes[absorbIdx],
+    );
+
+    return DockSplit(
+      axis: node.axis,
+      children: innerNewChildren,
+      ratios: _ratiosFromSizes(innerNewSizes),
+    );
   }
 
   /// 탭 그룹의 활성 탭을 전환한다.
