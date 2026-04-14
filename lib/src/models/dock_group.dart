@@ -6,7 +6,7 @@ import '../config/dock_config.dart';
 import 'dock_node.dart';
 
 // 기본 DockConfig 인스턴스 — 모델 내부 계산에서 사용.
-const _config = DockConfig();
+const _config = DockConfig.defaultConfig;
 
 /// 뷰포트 엣지 도킹 방향.
 enum ViewportEdge { left, right }

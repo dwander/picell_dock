@@ -17,14 +17,11 @@ class DockColorScheme {
   final Color textSecondary;
   final Color textMuted;
   final Color textHint;
-  final Color fg3;
-  final Color fg4;
   final Color separator;
   final Color separatorHover;
 
   // ── 액센트 ──
   final Color accent;
-  final Color accentMuted;
 
   /// 일반 도킹/언도킹 시 보더 스캔 색상 (엣지 전환과 구분).
   final Color dockScanAccent;
@@ -49,12 +46,9 @@ class DockColorScheme {
     this.textSecondary = const Color(0xFFB0B0B0),
     this.textMuted = const Color(0xFF8A8A8A),
     this.textHint = const Color(0xFF666666),
-    this.fg3 = const Color(0xFF8A8A8A),
-    this.fg4 = const Color(0xFF666666),
     this.separator = const Color(0xFF444444),
     this.separatorHover = const Color(0xFF606060),
     this.accent = const Color(0xFF6BA3BE),
-    this.accentMuted = const Color(0xFF4A7A91),
     this.dockScanAccent = const Color(0xFF8ABE6B),
     this.border = const Color(0xFF353535),
     this.borderFocused = const Color(0xFF4A7A91),
@@ -68,4 +62,45 @@ class DockColorScheme {
       ),
     ],
   });
+
+  /// 지정한 필드만 변경한 복사본 생성.
+  DockColorScheme copyWith({
+    Color? bg0,
+    Color? bg1,
+    Color? bg3,
+    Color? panelBackground,
+    Color? headerOverlay,
+    Color? textPrimary,
+    Color? textSecondary,
+    Color? textMuted,
+    Color? textHint,
+    Color? separator,
+    Color? separatorHover,
+    Color? accent,
+    Color? dockScanAccent,
+    Color? border,
+    Color? borderFocused,
+    Color? hover,
+    List<BoxShadow>? groupShadow,
+  }) {
+    return DockColorScheme(
+      bg0: bg0 ?? this.bg0,
+      bg1: bg1 ?? this.bg1,
+      bg3: bg3 ?? this.bg3,
+      panelBackground: panelBackground ?? this.panelBackground,
+      headerOverlay: headerOverlay ?? this.headerOverlay,
+      textPrimary: textPrimary ?? this.textPrimary,
+      textSecondary: textSecondary ?? this.textSecondary,
+      textMuted: textMuted ?? this.textMuted,
+      textHint: textHint ?? this.textHint,
+      separator: separator ?? this.separator,
+      separatorHover: separatorHover ?? this.separatorHover,
+      accent: accent ?? this.accent,
+      dockScanAccent: dockScanAccent ?? this.dockScanAccent,
+      border: border ?? this.border,
+      borderFocused: borderFocused ?? this.borderFocused,
+      hover: hover ?? this.hover,
+      groupShadow: groupShadow ?? this.groupShadow,
+    );
+  }
 }

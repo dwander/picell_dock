@@ -1,12 +1,15 @@
 import 'dart:convert';
 import 'dart:developer' as dev;
 import 'dart:io';
-import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
-
 import 'dart:ui';
 
+import 'package:collection/collection.dart';
+import 'package:path/path.dart' as p;
+
 import '../models/dock_group.dart';
+
+/// nullable 필드의 copyWith sentinel — 명시적으로 null을 지정할 때 사용.
+const _unset = Object();
 
 /// 레이아웃 로드 결과: 그룹 목록 + 패널별 마지막 단독 크기 + 저장 시 뷰포트 높이.
 class DockLayoutData {
@@ -18,15 +21,72 @@ class DockLayoutData {
   /// 재시작 시 엣지 패널 Split 비율을 현재 뷰포트에 맞게 재조정하는 데 사용.
   final double? savedViewportHeight;
 
-  /// 레이아웃과 함께 저장된 썸네일 크기. null이면 현재 설정 유지.
-  final double? thumbnailSize;
+  /// 호스트 앱이 레이아웃과 함께 저장할 임의 데이터.
+  ///
+  /// JSON 직렬화 가능한 형태여야 한다 (String/num/bool/List/Map).
+  /// 레이아웃 JSON 최상위 키로 spread되어 저장되므로 기존 파일 형식과 호환된다.
+  final Map<String, dynamic>? extraData;
 
   const DockLayoutData({
     required this.groups,
     this.lastPanelAloneSizes = const {},
     this.savedViewportHeight,
-    this.thumbnailSize,
+    this.extraData,
   });
+
+  /// 지정한 필드만 변경한 복사본 생성.
+  ///
+  /// nullable 필드([savedViewportHeight], [extraData])를 명시적으로 null로
+  /// 초기화하려면 [clearSavedViewportHeight] / [clearExtraData]를 true로 전달.
+  DockLayoutData copyWith({
+    List<DockGroup>? groups,
+    Map<String, Size>? lastPanelAloneSizes,
+    Object? savedViewportHeight = _unset,
+    Object? extraData = _unset,
+    bool clearSavedViewportHeight = false,
+    bool clearExtraData = false,
+  }) {
+    return DockLayoutData(
+      groups: groups ?? this.groups,
+      lastPanelAloneSizes: lastPanelAloneSizes ?? this.lastPanelAloneSizes,
+      savedViewportHeight: clearSavedViewportHeight
+          ? null
+          : (savedViewportHeight == _unset
+              ? this.savedViewportHeight
+              : savedViewportHeight as double?),
+      extraData: clearExtraData
+          ? null
+          : (extraData == _unset
+              ? this.extraData
+              : extraData as Map<String, dynamic>?),
+    );
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    if (other is! DockLayoutData) return false;
+    const listEq = ListEquality<DockGroup>();
+    const mapEq = MapEquality<String, Size>();
+    const deepEq = DeepCollectionEquality();
+    return listEq.equals(groups, other.groups) &&
+        mapEq.equals(lastPanelAloneSizes, other.lastPanelAloneSizes) &&
+        savedViewportHeight == other.savedViewportHeight &&
+        deepEq.equals(extraData, other.extraData);
+  }
+
+  @override
+  int get hashCode {
+    const listEq = ListEquality<DockGroup>();
+    const mapEq = MapEquality<String, Size>();
+    const deepEq = DeepCollectionEquality();
+    return Object.hash(
+      listEq.hash(groups),
+      mapEq.hash(lastPanelAloneSizes),
+      savedViewportHeight,
+      deepEq.hash(extraData),
+    );
+  }
 }
 
 /// 독 레이아웃 상태를 JSON 파일로 저장·복원하는 서비스.
@@ -45,20 +105,16 @@ class DockLayoutService {
   static const String _fileName = 'dock_layout.json';
   static const int _version = 2;
 
-  String? _filePath;
+  final String appDataDir;
 
-  /// 저장 파일 경로를 초기화하고 반환.
-  Future<String> _getFilePath() async {
-    if (_filePath != null) return _filePath!;
-    final appDir = await getApplicationSupportDirectory();
-    _filePath = p.join(appDir.path, _fileName);
-    return _filePath!;
-  }
+  DockLayoutService(this.appDataDir);
+
+  String get _filePath => p.join(appDataDir, _fileName);
 
   /// 저장된 레이아웃 로드. 그룹 목록 + 패널별 마지막 단독 크기를 반환.
   Future<DockLayoutData?> loadLayout() async {
     try {
-      final path = await _getFilePath();
+      final path = _filePath;
       final file = File(path);
       if (!file.existsSync()) return null;
 
@@ -95,13 +151,24 @@ class DockLayoutService {
       final savedViewportHeight =
           (json['viewportHeight'] as num?)?.toDouble();
 
-      final thumbnailSize = (json['thumbnailSize'] as num?)?.toDouble();
+      // 서비스가 관리하는 예약 키를 제외한 나머지를 extraData로 반환.
+      const reservedKeys = {
+        'version',
+        'currentLayout',
+        'viewportHeight',
+        'lastPanelAloneSizes',
+        'presets',
+      };
+      final extra = <String, dynamic>{
+        for (final e in json.entries)
+          if (!reservedKeys.contains(e.key)) e.key: e.value,
+      };
 
       return DockLayoutData(
         groups: groups,
         lastPanelAloneSizes: sizes,
         savedViewportHeight: savedViewportHeight,
-        thumbnailSize: thumbnailSize,
+        extraData: extra.isEmpty ? null : extra,
       );
     } catch (e, st) {
       dev.log(
@@ -115,13 +182,24 @@ class DockLayoutService {
   }
 
   /// 현재 레이아웃(그룹 목록 + 패널별 마지막 단독 크기 + 뷰포트 높이)을 저장.
+  ///
+  /// [extraData]에 호스트 앱의 임의 데이터를 전달하면 레이아웃 JSON 최상위에
+  /// spread되어 저장된다. 예약 키([reservedKeys])는 덮어쓸 수 없다.
   Future<void> saveLayout(
     List<DockGroup> groups, {
     Map<String, Size> lastPanelAloneSizes = const {},
     double? viewportHeight,
-    double? thumbnailSize,
+    Map<String, dynamic>? extraData,
   }) async {
-    final path = await _getFilePath();
+    const reservedKeys = {
+      'version',
+      'currentLayout',
+      'viewportHeight',
+      'lastPanelAloneSizes',
+      'presets',
+    };
+
+    final path = _filePath;
     final file = File(path);
 
     // 기존 파일에서 presets 등 다른 데이터 유지
@@ -140,15 +218,19 @@ class DockLayoutService {
       );
     }
 
+    // 호스트 앱의 extraData를 예약 키를 피해 최상위에 merge.
+    if (extraData != null) {
+      extraData.forEach((k, v) {
+        if (!reservedKeys.contains(k)) existing[k] = v;
+      });
+    }
+
     existing['version'] = _version;
     existing['currentLayout'] = {
       'groups': [for (final g in groups) g.toJson()],
     };
     if (viewportHeight != null) {
       existing['viewportHeight'] = viewportHeight;
-    }
-    if (thumbnailSize != null) {
-      existing['thumbnailSize'] = thumbnailSize;
     }
     existing['lastPanelAloneSizes'] = {
       for (final entry in lastPanelAloneSizes.entries)

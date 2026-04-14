@@ -6,6 +6,7 @@ import '../models/dock_group.dart';
 import '../models/dock_node.dart';
 import '../providers/dock_node_tree.dart';
 import '../providers/dock_provider.dart';
+import '../config/dock_display_settings.dart';
 import '../theme/dock_theme.dart';
 import '../widgets/border_glow_effect.dart';
 import '../widgets/border_scan_effect.dart';
@@ -54,8 +55,10 @@ class _DockGroupWidgetState extends ConsumerState<DockGroupWidget>
   /// null이면 노드 스캔 오버레이 비활성.
   Rect? _nodeScanRect;
 
-  /// 이전 프레임의 animateHide 값. false→true 전환 시 스냅 처리에 사용.
-  bool _prevAnimateHide = true;
+  /// `didChangeDependencies()`에서 이전 프레임과 비교하기 위해 보관하는
+  /// 마지막으로 처리한 [DockDisplaySettings].
+  /// null이면 아직 처음 호출 전(초기화 단계).
+  DockDisplaySettings? _lastDisplaySettings;
 
   static const Duration _cleanModeDuration = Duration(milliseconds: 400);
 
@@ -87,6 +90,37 @@ class _DockGroupWidgetState extends ConsumerState<DockGroupWidget>
         _consumeScanPending();
       });
     });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final current = DockTheme.of(context).displaySettings;
+    final previous = _lastDisplaySettings;
+    _lastDisplaySettings = current;
+
+    // shouldHide 계산은 group 접근이 필요하므로 widget.group 사용.
+    final shouldHide =
+        current.hideAll || (current.hideUnpinned && !widget.group.pinned);
+
+    if (previous == null) {
+      // 첫 호출: 애니메이션 없이 즉시 값 설정.
+      _cleanModeController.value = shouldHide ? 1.0 : 0.0;
+      return;
+    }
+
+    // 이전·현재 프레임 모두 animateHide가 true일 때만 애니메이션.
+    // false→true 전환(전체화면 복귀 등)에서는 스냅 처리.
+    final shouldAnimate = previous.animateHide && current.animateHide;
+    if (shouldAnimate) {
+      if (shouldHide) {
+        _cleanModeController.forward();
+      } else {
+        _cleanModeController.reverse();
+      }
+    } else {
+      _cleanModeController.value = shouldHide ? 1.0 : 0.0;
+    }
   }
 
   /// scanPendingNodes에 이 그룹이 있으면 스캔 트리거 후 제거.
@@ -168,6 +202,121 @@ class _DockGroupWidgetState extends ConsumerState<DockGroupWidget>
     }
   }
 
+  // ── 이펙트 레이어 ──
+
+  /// 5단계 이펙트 레이어로 [child]를 감싼다.
+  ///
+  /// 외부 → 내부 순서: 포커스 플래시 글로우 → 엣지 도킹 → 보더 스캔 → 도킹 글로우
+  Widget _wrapWithEffects({
+    required Widget child,
+    required double borderRadius,
+    required Color focusFlashColor,
+    required Color accentColor,
+    required Color dockScanColor,
+  }) {
+    return BorderGlowEffect(
+      controller: _focusFlashController,
+      color: focusFlashColor,
+      borderRadius: borderRadius,
+      duration: _cleanModeDuration,
+      intensity: 0.35,
+      child: EdgeDockEffect(
+        controller: _edgeDockController,
+        color: accentColor,
+        borderRadius: borderRadius,
+        child: BorderScanEffect(
+          controller: _scanController,
+          color: accentColor,
+          borderRadius: borderRadius,
+          child: BorderGlowEffect(
+            controller: _dockGlowController,
+            color: dockScanColor,
+            borderRadius: borderRadius,
+            child: child,
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 패널 본체(GestureDetector + Container + DockNodeWidget + 오버레이)를 반환.
+  Widget _buildPanelBody({
+    required DockGroup group,
+    required Size viewerSize,
+    required double borderRadius,
+    required Color panelBackground,
+    required Color borderColor,
+    required Color borderFocused,
+    required List<BoxShadow>? groupShadow,
+    required bool isFocused,
+    required bool showFocusHighlight,
+    required Color dockScanAccent,
+  }) {
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        GestureDetector(
+          onTap: () =>
+              ref.read(dockProvider.notifier).bringToFront(group.id),
+          child: Container(
+            clipBehavior: Clip.antiAlias,
+            decoration: BoxDecoration(
+              color: panelBackground,
+              borderRadius: BorderRadius.circular(borderRadius),
+              boxShadow: groupShadow,
+            ),
+            foregroundDecoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(borderRadius),
+              border: Border.all(color: borderColor),
+            ),
+            child: DockNodeWidget(
+              node: group.root,
+              dragContext: DockDragContext(
+                groupId: group.id,
+                viewerSize: viewerSize,
+                stackKey: widget.stackKey,
+              ),
+            ),
+          ),
+        ),
+        // 노드 수준 보더 글로우 오버레이
+        if (_nodeScanRect != null)
+          Positioned(
+            left: _nodeScanRect!.left,
+            top: _nodeScanRect!.top,
+            width: _nodeScanRect!.width,
+            height: _nodeScanRect!.height,
+            child: IgnorePointer(
+              child: _NodeGlowOverlay(color: dockScanAccent),
+            ),
+          ),
+        // 포커스 인디케이터 — 테두리 위에 오버레이
+        if (isFocused && showFocusHighlight)
+          Positioned.fill(
+            child: IgnorePointer(
+              child: DecoratedBox(
+                decoration: EdgeGlowDecoration(
+                  color: borderFocused,
+                  borderRadius: borderRadius,
+                ),
+              ),
+            ),
+          ),
+        // 리사이즈 핸들 표시 조건:
+        // - 플로팅 그룹에서 모든 패널이 접혀 있으면 불가
+        // - 최대화 상태면 불가 (윈도우 최대화처럼 가장자리 리사이즈 잠금)
+        if ((group.dockedEdge != null || !group.root.isAllCollapsed) &&
+            group.savedState == null)
+          DockResizeHandles(
+            groupId: group.id,
+            viewerSize: viewerSize,
+            stackKey: widget.stackKey,
+            dockedEdge: group.dockedEdge,
+          ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final group = widget.group;
@@ -210,24 +359,7 @@ class _DockGroupWidgetState extends ConsumerState<DockGroupWidget>
     final isFocused =
         focusedPanelId != null &&
         group.root.collectPanelIds().contains(focusedPanelId);
-    final displaySettings = DockTheme.of(context).displaySettings;
-    final showFocusHighlight = displaySettings.showFocusHighlight;
-
-    final shouldHide = displaySettings.hideAll ||
-        (displaySettings.hideUnpinned && !group.pinned);
-    // 이전·현재 프레임 모두 animateHide가 true일 때만 애니메이션.
-    // false→true 전환(전체화면 복귀 등)에서는 스냅 처리.
-    final shouldAnimate = displaySettings.animateHide && _prevAnimateHide;
-    _prevAnimateHide = displaySettings.animateHide;
-    if (shouldAnimate) {
-      if (shouldHide) {
-        _cleanModeController.forward();
-      } else {
-        _cleanModeController.reverse();
-      }
-    } else {
-      _cleanModeController.value = shouldHide ? 1.0 : 0.0;
-    }
+    final displaySettings = theme.displaySettings;
 
     final slideOffset = _computeSlideOffset(rect, viewerSize);
 
@@ -259,100 +391,25 @@ class _DockGroupWidgetState extends ConsumerState<DockGroupWidget>
               // 패널 본체 — Padding으로 중앙 배치
               Padding(
                 padding: EdgeInsets.symmetric(horizontal: overhang),
-                child: BorderGlowEffect(
-                  controller: _focusFlashController,
-                  color: cs.borderFocused,
+                child: _wrapWithEffects(
                   borderRadius: cfg.groupBorderRadius,
-                  duration: const Duration(milliseconds: 400),
-                  intensity: 0.35,
-                  child: EdgeDockEffect(
-                    controller: _edgeDockController,
-                    color: cs.accent,
+                  focusFlashColor: cs.borderFocused,
+                  accentColor: cs.accent,
+                  dockScanColor: cs.dockScanAccent,
+                  child: _buildPanelBody(
+                    group: group,
+                    viewerSize: viewerSize,
                     borderRadius: cfg.groupBorderRadius,
-                    child: BorderScanEffect(
-                      controller: _scanController,
-                      color: cs.accent,
-                      borderRadius: cfg.groupBorderRadius,
-                    child: BorderGlowEffect(
-                      controller: _dockGlowController,
-                      color: cs.dockScanAccent,
-                      borderRadius: cfg.groupBorderRadius,
-                      child: Stack(
-                        clipBehavior: Clip.none,
-                        children: [
-                          GestureDetector(
-                            onTap: () => ref
-                                .read(dockProvider.notifier)
-                                .bringToFront(group.id),
-                            child: Container(
-                              clipBehavior: Clip.antiAlias,
-                              decoration: BoxDecoration(
-                                color: cs.panelBackground,
-                                borderRadius: BorderRadius.circular(
-                                  cfg.groupBorderRadius,
-                                ),
-                                boxShadow: cs.groupShadow,
-                              ),
-                              foregroundDecoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(
-                                  cfg.groupBorderRadius,
-                                ),
-                                border: Border.all(color: cs.border),
-                              ),
-                              child: DockNodeWidget(
-                                node: group.root,
-                                dragContext: DockDragContext(
-                                  groupId: group.id,
-                                  viewerSize: viewerSize,
-                                  stackKey: widget.stackKey,
-                                ),
-                              ),
-                            ),
-                          ),
-                          // 노드 수준 보더 글로우 오버레이
-                          if (_nodeScanRect != null)
-                            Positioned(
-                              left: _nodeScanRect!.left,
-                              top: _nodeScanRect!.top,
-                              width: _nodeScanRect!.width,
-                              height: _nodeScanRect!.height,
-                              child: IgnorePointer(
-                                child: _NodeGlowOverlay(
-                                  color: cs.dockScanAccent,
-                                ),
-                              ),
-                            ),
-                          // 포커스 인디케이터 — 테두리 위에 오버레이
-                          if (isFocused && showFocusHighlight)
-                            Positioned.fill(
-                              child: IgnorePointer(
-                                child: DecoratedBox(
-                                  decoration: EdgeGlowDecoration(
-                                    color: cs.borderFocused,
-                                    borderRadius: cfg.groupBorderRadius,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          // 리사이즈 핸들 표시 조건:
-                          // - 플로팅 그룹에서 모든 패널이 접혀 있으면 불가
-                          // - 최대화 상태면 불가 (윈도우 최대화처럼 가장자리 리사이즈 잠금)
-                          if ((group.dockedEdge != null ||
-                                  !group.root.isAllCollapsed) &&
-                              group.savedState == null)
-                            DockResizeHandles(
-                              groupId: group.id,
-                              viewerSize: viewerSize,
-                              stackKey: widget.stackKey,
-                              dockedEdge: group.dockedEdge,
-                            ),
-                        ],
-                      ),
-                    ),
+                    panelBackground: cs.panelBackground,
+                    borderColor: cs.border,
+                    borderFocused: cs.borderFocused,
+                    groupShadow: cs.groupShadow,
+                    isFocused: isFocused,
+                    showFocusHighlight: displaySettings.showFocusHighlight,
+                    dockScanAccent: cs.dockScanAccent,
                   ),
                 ),
               ),
-            ),
               // 뱃지 버튼 — 확장된 영역 내에 배치 (overflow 없이 히트 테스트 정상 작동)
               _GroupBadgeButtons(
                 group: group,
@@ -392,6 +449,17 @@ class _GroupBadgeButtons extends ConsumerWidget {
   /// 상단에서의 마진
   static const double _topMargin = 6.0;
 
+  /// 뱃지 컨테이너가 패널 바깥으로 돌출되는 총 폭.
+  /// [_DockGroupWidgetState._badgeOverhang]과 동일한 계산식을 자체 보유.
+  static const double _overhang =
+      _sideOffset + _containerPadding * 2 + _buttonSize;
+
+  /// 뱃지 페이드 인/아웃 지속 시간.
+  static const Duration _badgeFadeDuration = Duration(milliseconds: 150);
+
+  /// 컨테이너 모서리 반경 (pill 형태).
+  static const double _pillRadius = 999.0;
+
   const _GroupBadgeButtons({
     required this.group,
     required this.rect,
@@ -418,24 +486,22 @@ class _GroupBadgeButtons extends ConsumerWidget {
     // 컨테이너 전체 폭 (패딩 + 버튼)
     final containerWidth = _containerPadding * 2 + _buttonSize;
 
-    // 외부 Stack 기준: 패널은 _badgeOverhang만큼 안쪽에서 시작
+    // 외부 Stack 기준: 패널은 _overhang만큼 안쪽에서 시작
     // 패널 프레임 바깥에 딱 붙도록 배치
-    final overhang = _DockGroupWidgetState._badgeOverhang;
-
     return Positioned(
       top: _topMargin,
-      left: placeOnRight ? null : overhang - containerWidth + _sideOffset,
-      right: placeOnRight ? overhang - containerWidth + _sideOffset : null,
+      left: placeOnRight ? null : _overhang - containerWidth + _sideOffset,
+      right: placeOnRight ? _overhang - containerWidth + _sideOffset : null,
       child: IgnorePointer(
         ignoring: !isVisible,
         child: AnimatedOpacity(
           opacity: isVisible ? 1.0 : 0.0,
-          duration: const Duration(milliseconds: 150),
+          duration: _badgeFadeDuration,
           child: Container(
             padding: const EdgeInsets.all(_containerPadding),
             decoration: BoxDecoration(
               color: cs.bg0.withValues(alpha: 0.85),
-              borderRadius: BorderRadius.circular(999),
+              borderRadius: BorderRadius.circular(_pillRadius),
               border: Border.all(
                 color: cs.border.withValues(alpha: 0.8),
                 width: 0.5,

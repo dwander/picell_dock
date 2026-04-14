@@ -39,6 +39,11 @@ class DockSettings {
   /// 탭바 우측에 최대화 버튼이 노출된다.
   final Set<String> maximizablePanelIds;
 
+  /// 레이아웃 저장 파일을 쓸 앱 데이터 디렉토리 경로.
+  ///
+  /// null이면 레이아웃 저장/로드를 비활성화한다 (테스트 환경 등).
+  final String? appDataDir;
+
   const DockSettings({
     this.allowAutoAvoidance = false,
     this.allowHorizontalPanelDock = true,
@@ -46,7 +51,31 @@ class DockSettings {
     this.isHeaderless = _alwaysFalse,
     this.initialFocusedPanelId,
     this.maximizablePanelIds = const {},
+    this.appDataDir,
   });
+
+  /// 지정한 필드만 변경한 복사본 생성.
+  DockSettings copyWith({
+    bool? allowAutoAvoidance,
+    bool? allowHorizontalPanelDock,
+    List<DockGroup> Function()? defaultLayout,
+    bool Function(String panelId)? isHeaderless,
+    String? initialFocusedPanelId,
+    Set<String>? maximizablePanelIds,
+    String? appDataDir,
+  }) {
+    return DockSettings(
+      allowAutoAvoidance: allowAutoAvoidance ?? this.allowAutoAvoidance,
+      allowHorizontalPanelDock:
+          allowHorizontalPanelDock ?? this.allowHorizontalPanelDock,
+      defaultLayout: defaultLayout ?? this.defaultLayout,
+      isHeaderless: isHeaderless ?? this.isHeaderless,
+      initialFocusedPanelId:
+          initialFocusedPanelId ?? this.initialFocusedPanelId,
+      maximizablePanelIds: maximizablePanelIds ?? this.maximizablePanelIds,
+      appDataDir: appDataDir ?? this.appDataDir,
+    );
+  }
 
   static bool _alwaysFalse(String _) => false;
 }

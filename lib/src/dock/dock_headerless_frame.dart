@@ -24,12 +24,6 @@ class _HeaderlessFrame extends ConsumerStatefulWidget {
 
 class _HeaderlessFrameState extends ConsumerState<_HeaderlessFrame>
     with TickerProviderStateMixin, DockDragMixin {
-  Offset _grabOffset = Offset.zero;
-  Offset _stackOrigin = Offset.zero;
-
-  late final AnimationController _overlayCtrl;
-  late final CurvedAnimation _overlayAnim;
-
   static const Duration _overlayDuration = Duration(milliseconds: 200);
 
   @override
@@ -38,31 +32,14 @@ class _HeaderlessFrameState extends ConsumerState<_HeaderlessFrame>
   @override
   void initState() {
     super.initState();
-    initDragMixin();
-    _overlayCtrl = AnimationController(
-      duration: _overlayDuration,
-      vsync: this,
-    );
-    _overlayAnim = CurvedAnimation(
-      parent: _overlayCtrl,
-      curve: Curves.easeOut,
-    );
+    initDragMixin(duration: _overlayDuration);
   }
 
   @override
   void dispose() {
     removeGhost();
     disposeDragMixin();
-    _overlayCtrl.dispose();
     super.dispose();
-  }
-
-  void _onHoverChanged(bool hovering) {
-    if (hovering) {
-      _overlayCtrl.forward();
-    } else {
-      _overlayCtrl.reverse();
-    }
   }
 
   /// 그룹 내 모든 패널이 헤더리스인지 여부.
@@ -80,8 +57,8 @@ class _HeaderlessFrameState extends ConsumerState<_HeaderlessFrame>
   void _onDragStart(DragStartDetails details) {
     final dc = widget.dragContext;
     if (dc == null) return;
-    _stackOrigin = dc.stackOrigin;
-    final cursorInStack = details.globalPosition - _stackOrigin;
+    stackOrigin = dc.stackOrigin;
+    final cursorInStack = details.globalPosition - stackOrigin;
     final notifier = ref.read(dockProvider.notifier);
 
     // Split 내부 + 일반 패널 혼합 → 고스트 분리 모드
@@ -100,7 +77,7 @@ class _HeaderlessFrameState extends ConsumerState<_HeaderlessFrame>
     final groups = ref.read(dockProvider).groups;
     final group = groups.where((g) => g.id == dc.groupId).firstOrNull;
     if (group == null) return;
-    _grabOffset = Offset(
+    grabOffset = Offset(
       cursorInStack.dx - group.absoluteX(dc.viewerSize.width),
       cursorInStack.dy - group.absoluteY(dc.viewerSize.height),
     );
@@ -123,10 +100,10 @@ class _HeaderlessFrameState extends ConsumerState<_HeaderlessFrame>
       return;
     }
 
-    final cursorInStack = details.globalPosition - _stackOrigin;
+    final cursorInStack = details.globalPosition - stackOrigin;
     ref.read(dockProvider.notifier).updateDrag(
       dc.groupId,
-      cursorInStack - _grabOffset,
+      cursorInStack - grabOffset,
       dc.viewerSize,
       cursorInStack: cursorInStack,
     );
@@ -147,17 +124,12 @@ class _HeaderlessFrameState extends ConsumerState<_HeaderlessFrame>
         cursorInStack: cursorInStack,
       );
 
-      // 도킹 대상이 있으면 즉시 도킹
-      if (newId != null && preview != null) {
-        if (preview.edge == DockEdge.center) {
-          notifier.performTabDock(
-            newId, preview.targetGroupId, preview.nodePath);
-        } else {
-          notifier.performEdgeDock(
-            newId, preview.targetGroupId, preview.edge, preview.nodePath);
-        }
+      // 도킹 대상이 있으면 즉시 도킹, 없으면 preview 초기화만
+      if (newId != null) {
+        commitDockPreview(newId, preview, notifier);
+      } else {
+        notifier.clearGhostDockPreview();
       }
-      notifier.clearGhostDockPreview();
       undockPending = false;
     } else {
       notifier.endDrag();
@@ -199,8 +171,8 @@ class _HeaderlessFrameState extends ConsumerState<_HeaderlessFrame>
       },
       behavior: HitTestBehavior.translucent,
       child: MouseRegion(
-        onEnter: hasOverlay ? (_) => _onHoverChanged(true) : null,
-        onExit: hasOverlay ? (_) => _onHoverChanged(false) : null,
+        onEnter: hasOverlay ? (_) => onHoverChanged(true) : null,
+        onExit: hasOverlay ? (_) => onHoverChanged(false) : null,
         child: GestureDetector(
           onPanStart: dc == null ? null : _onDragStart,
           onPanUpdate: dc == null ? null : _onDragUpdate,
@@ -220,7 +192,7 @@ class _HeaderlessFrameState extends ConsumerState<_HeaderlessFrame>
                         left: 0,
                         right: 0,
                         child: SizeTransition(
-                          sizeFactor: _overlayAnim,
+                          sizeFactor: overlayAnimation,
                           axisAlignment: -1.0,
                           child: Container(
                             height: cfg.headerOverlayHeight,

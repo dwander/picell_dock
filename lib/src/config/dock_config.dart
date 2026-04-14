@@ -42,4 +42,46 @@ class DockConfig {
     this.edgeDetectThreshold = 1.0,
     this.edgeHintWidth = 4.0,
   });
+
+  /// 지정한 필드만 변경한 복사본 생성.
+  DockConfig copyWith({
+    double? groupHeaderHeight,
+    double? groupBorderRadius,
+    double? groupMinWidth,
+    double? groupMinHeight,
+    double? panelHeaderHeight,
+    double? headerOverlayHeight,
+    double? headerOverlayRadius,
+    double? tabBarHeight,
+    double? splitSeparatorThickness,
+    double? focusIndicatorHeight,
+    double? edgePanelMinSize,
+    double? edgePanelDefaultSize,
+    double? edgeDetectThreshold,
+    double? edgeHintWidth,
+  }) {
+    return DockConfig(
+      groupHeaderHeight: groupHeaderHeight ?? this.groupHeaderHeight,
+      groupBorderRadius: groupBorderRadius ?? this.groupBorderRadius,
+      groupMinWidth: groupMinWidth ?? this.groupMinWidth,
+      groupMinHeight: groupMinHeight ?? this.groupMinHeight,
+      panelHeaderHeight: panelHeaderHeight ?? this.panelHeaderHeight,
+      headerOverlayHeight: headerOverlayHeight ?? this.headerOverlayHeight,
+      headerOverlayRadius: headerOverlayRadius ?? this.headerOverlayRadius,
+      tabBarHeight: tabBarHeight ?? this.tabBarHeight,
+      splitSeparatorThickness:
+          splitSeparatorThickness ?? this.splitSeparatorThickness,
+      focusIndicatorHeight: focusIndicatorHeight ?? this.focusIndicatorHeight,
+      edgePanelMinSize: edgePanelMinSize ?? this.edgePanelMinSize,
+      edgePanelDefaultSize: edgePanelDefaultSize ?? this.edgePanelDefaultSize,
+      edgeDetectThreshold: edgeDetectThreshold ?? this.edgeDetectThreshold,
+      edgeHintWidth: edgeHintWidth ?? this.edgeHintWidth,
+    );
+  }
+
+  /// 기본값으로 생성된 [DockConfig] 인스턴스.
+  ///
+  /// dock_group.dart, dock_provider.dart 등에서 `const DockConfig()`를 직접
+  /// 선언하는 대신 이 상수를 사용한다.
+  static const DockConfig defaultConfig = DockConfig();
 }

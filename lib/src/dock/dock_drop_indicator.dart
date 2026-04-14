@@ -9,6 +9,9 @@ class DockDropIndicator extends StatelessWidget {
   final Rect rect;
   final bool isViewportEdge;
 
+  /// 드롭 인디케이터 모서리 반경.
+  static const double _radius = 4.0;
+
   const DockDropIndicator({
     super.key,
     required this.rect,
@@ -27,7 +30,7 @@ class DockDropIndicator extends StatelessWidget {
           decoration: BoxDecoration(
             color: DockTheme.of(context).colorScheme.accent.withValues(alpha: 0.12),
             border: Border.all(color: DockTheme.of(context).colorScheme.accent.withValues(alpha: 0.5)),
-            borderRadius: isViewportEdge ? null : BorderRadius.circular(4),
+            borderRadius: isViewportEdge ? null : BorderRadius.circular(_radius),
           ),
         ),
       ),

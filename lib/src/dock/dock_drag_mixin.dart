@@ -19,11 +19,17 @@ mixin DockDragMixin<T extends ConsumerStatefulWidget>
 
   static const Duration animationDuration = Duration(milliseconds: 150);
 
+  // ── 고스트 관련 상수 ──
+  static const Size _defaultGhostSize = Size(200, 120);
+
+  /// 커서에서 고스트 상단까지의 오프셋 (커서 위쪽 여백).
+  static const double _ghostCursorOffsetY = 10.0;
+
   // ── 고스트 관련 필드 ──
   bool undockPending = false;
   OverlayEntry? _ghostEntry;
   Offset _ghostPosition = Offset.zero;
-  Size _ghostSize = const Size(200, 120);
+  Size _ghostSize = _defaultGhostSize;
 
   /// 현재 고스트 크기 (도킹 프리뷰 계산용).
   Size get ghostSize => _ghostSize;
@@ -31,9 +37,10 @@ mixin DockDragMixin<T extends ConsumerStatefulWidget>
   /// 서브클래스가 구현: 현재 위젯의 DockDragContext.
   DockDragContext? get dragContext;
 
-  void initDragMixin() {
+  /// [duration]을 생략하면 [animationDuration](150ms)을 사용한다.
+  void initDragMixin({Duration? duration}) {
     overlayController = AnimationController(
-      duration: animationDuration,
+      duration: duration ?? animationDuration,
       vsync: this,
     );
     overlayAnimation = CurvedAnimation(
@@ -54,6 +61,31 @@ mixin DockDragMixin<T extends ConsumerStatefulWidget>
     } else {
       overlayController.reverse();
     }
+  }
+
+  /// 드래그 종료 시 preview가 있으면 도킹을 커밋한다.
+  ///
+  /// [newGroupId]는 undockTab/undockNode가 반환한 새 그룹 ID.
+  /// [preview]가 null이면 도킹 없이 [clearGhostDockPreview]만 호출.
+  /// performTabDock / performEdgeDock 분기 + clearGhostDockPreview 처리.
+  void commitDockPreview(
+    String newGroupId,
+    DockPreview? preview,
+    DockNotifier notifier,
+  ) {
+    if (preview != null) {
+      if (preview.edge == DockEdge.center) {
+        notifier.performTabDock(newGroupId, preview.targetGroupId, preview.nodePath);
+      } else {
+        notifier.performEdgeDock(
+          newGroupId,
+          preview.targetGroupId,
+          preview.edge,
+          preview.nodePath,
+        );
+      }
+    }
+    notifier.clearGhostDockPreview();
   }
 
   void onDragStart(DragStartDetails details) {
@@ -101,7 +133,7 @@ mixin DockDragMixin<T extends ConsumerStatefulWidget>
     }
     _ghostPosition = Offset(
       globalPosition.dx - _ghostSize.width / 2,
-      globalPosition.dy - 10,
+      globalPosition.dy - _ghostCursorOffsetY,
     );
     _ghostEntry = OverlayEntry(builder: (_) => _buildGhost(label));
     Overlay.of(context).insert(_ghostEntry!);
@@ -110,7 +142,7 @@ mixin DockDragMixin<T extends ConsumerStatefulWidget>
   void updateGhost(Offset globalPosition) {
     _ghostPosition = Offset(
       globalPosition.dx - _ghostSize.width / 2,
-      globalPosition.dy - 10,
+      globalPosition.dy - _ghostCursorOffsetY,
     );
     _ghostEntry?.markNeedsBuild();
   }

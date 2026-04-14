@@ -4,6 +4,9 @@ import 'package:equatable/equatable.dart';
 
 import '../models/dock_group.dart';
 
+/// nullable 필드를 "안 바꿈" vs "null로 지정"으로 구별하기 위한 센티널.
+const _unset = Object();
+
 /// 도킹 방향.
 enum DockEdge { top, right, bottom, left, center }
 
@@ -84,6 +87,47 @@ class DockState extends Equatable {
     this.displayRects = const {},
     this.scanPendingNodes = const {},
   });
+
+  /// 지정한 필드만 변경한 복사본을 생성.
+  ///
+  /// nullable 필드([draggingGroupId], [resizingGroupId], [dockPreview],
+  /// [focusedPanelId], [flashPanelId])는 인자를 생략하면 기존 값을 유지하고,
+  /// 명시적으로 `null`을 전달하면 null로 초기화된다.
+  DockState copyWith({
+    List<DockGroup>? groups,
+    Object? draggingGroupId = _unset,
+    Object? resizingGroupId = _unset,
+    Object? dockPreview = _unset,
+    Size? viewerSize,
+    Object? focusedPanelId = _unset,
+    Object? flashPanelId = _unset,
+    bool? layoutSettled,
+    Map<String, Rect>? displayRects,
+    Map<String, List<int>>? scanPendingNodes,
+  }) {
+    return DockState(
+      groups: groups ?? this.groups,
+      draggingGroupId: identical(draggingGroupId, _unset)
+          ? this.draggingGroupId
+          : draggingGroupId as String?,
+      resizingGroupId: identical(resizingGroupId, _unset)
+          ? this.resizingGroupId
+          : resizingGroupId as String?,
+      dockPreview: identical(dockPreview, _unset)
+          ? this.dockPreview
+          : dockPreview as DockPreview?,
+      viewerSize: viewerSize ?? this.viewerSize,
+      focusedPanelId: identical(focusedPanelId, _unset)
+          ? this.focusedPanelId
+          : focusedPanelId as String?,
+      flashPanelId: identical(flashPanelId, _unset)
+          ? this.flashPanelId
+          : flashPanelId as String?,
+      layoutSettled: layoutSettled ?? this.layoutSettled,
+      displayRects: displayRects ?? this.displayRects,
+      scanPendingNodes: scanPendingNodes ?? this.scanPendingNodes,
+    );
+  }
 
   /// 드래그 또는 리사이즈가 활성 상태인지.
   bool get isInteracting => draggingGroupId != null || resizingGroupId != null;

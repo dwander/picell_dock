@@ -6,7 +6,7 @@ import 'package:flutter/material.dart';
 /// ```dart
 /// Container(
 ///   foregroundDecoration: EdgeGlowDecoration(
-///     color: AppColors.accent,
+///     color: Colors.blue,
 ///     borderRadius: 8.0,
 ///   ),
 ///   child: ...,

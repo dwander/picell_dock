@@ -109,17 +109,19 @@ class DockTabbed extends DockNode {
   }) : assert(tabIds.length > 0), // ignore: prefer_is_empty — const constructor
        assert(activeIndex >= 0 && activeIndex < tabIds.length);
 
-  /// collapsed / expandedHeight만 변경한 복사본 생성.
+  /// 지정한 필드만 변경한 복사본 생성.
   ///
   /// [clearExpandedHeight]가 true이면 expandedHeight를 null로 초기화.
   DockTabbed copyWith({
+    List<String>? tabIds,
+    int? activeIndex,
     bool? collapsed,
     double? expandedHeight,
     bool clearExpandedHeight = false,
   }) {
     return DockTabbed(
-      tabIds: tabIds,
-      activeIndex: activeIndex,
+      tabIds: tabIds ?? this.tabIds,
+      activeIndex: activeIndex ?? this.activeIndex,
       collapsed: collapsed ?? this.collapsed,
       expandedHeight: clearExpandedHeight
           ? null

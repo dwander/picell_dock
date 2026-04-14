@@ -43,6 +43,12 @@ class _GridPainter extends CustomPainter {
   static const double _minFadeRadius = 200.0;
   static const double _fadeRadiusMultiplier = 1.2;
 
+  /// 도트 최대 불투명도 (중심부 기준).
+  static const double _dotMaxAlpha = 0.4;
+
+  /// 앵커 구역 경계선 불투명도.
+  static const double _anchorLineAlpha = 0.3;
+
   @override
   void paint(Canvas canvas, Size size) {
     _drawDots(canvas, size);
@@ -51,7 +57,7 @@ class _GridPainter extends CustomPainter {
 
   void _drawDots(Canvas canvas, Size size) {
     final c = center ?? Offset(size.width / 2, size.height / 2);
-    final baseColor = colorScheme.fg4;
+    final baseColor = colorScheme.textHint;
 
     // 패널 대각선에 비례한 방사 반경
     final diagonal = panelSize != null
@@ -86,7 +92,7 @@ class _GridPainter extends CustomPainter {
         final distSq = dx * dx + dy * dy;
         if (distSq > fadeRadiusSq) continue;
 
-        final alpha = (1.0 - math.sqrt(distSq) / fadeRadius) * 0.4;
+        final alpha = (1.0 - math.sqrt(distSq) / fadeRadius) * _dotMaxAlpha;
         paint.color = baseColor.withValues(alpha: alpha);
         canvas.drawCircle(Offset(x, y), _dotRadius, paint);
       }
@@ -95,7 +101,7 @@ class _GridPainter extends CustomPainter {
 
   void _drawAnchorZones(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = colorScheme.fg3.withValues(alpha: 0.3)
+      ..color = colorScheme.textMuted.withValues(alpha: _anchorLineAlpha)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1;
 

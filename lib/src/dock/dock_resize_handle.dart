@@ -94,6 +94,14 @@ class _ResizeHandleState extends ConsumerState<_ResizeHandle> {
   late double _minWidth;
   late double _minHeight;
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final config = DockTheme.of(context).config;
+    _minWidth = config.groupMinWidth;
+    _minHeight = config.groupMinHeight;
+  }
+
   Offset _getStackOrigin() {
     final renderBox =
         widget.stackKey.currentContext?.findRenderObject() as RenderBox?;
@@ -102,9 +110,6 @@ class _ResizeHandleState extends ConsumerState<_ResizeHandle> {
 
   @override
   Widget build(BuildContext context) {
-    final config = DockTheme.of(context).config;
-    _minWidth = config.groupMinWidth;
-    _minHeight = config.groupMinHeight;
     return Positioned(
       left: _posLeft,
       right: _posRight,

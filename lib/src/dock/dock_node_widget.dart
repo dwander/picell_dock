@@ -6,6 +6,8 @@ import '../models/dock_node.dart';
 import '../providers/dock_node_tree.dart';
 import '../providers/dock_provider.dart';
 import '../providers/dock_settings_provider.dart';
+import '../config/dock_panel_delegate.dart';
+import '../theme/dock_color_scheme.dart';
 import '../theme/dock_theme.dart';
 import 'dock_drag_mixin.dart';
 
@@ -368,6 +370,9 @@ class _HeaderActionButton extends StatefulWidget {
   final bool flat;
   final bool forceHover;
 
+  /// 버튼 호버 배경 모서리 반경.
+  static const double _borderRadius = 4.0;
+
   const _HeaderActionButton({
     required this.icon,
     required this.tooltip,
@@ -405,7 +410,7 @@ class _HeaderActionButtonState extends State<_HeaderActionButton> {
                     ? null
                     : BoxDecoration(
                         color: hovered ? cs.hover : null,
-                        borderRadius: BorderRadius.circular(4),
+                        borderRadius: BorderRadius.circular(_HeaderActionButton._borderRadius),
                       ),
                 child: Icon(
                   widget.icon,

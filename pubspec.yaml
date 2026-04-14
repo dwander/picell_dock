@@ -18,7 +18,6 @@ dependencies:
 
   # Storage
   path: ^1.9.1
-  path_provider: ^2.1.5
 
   # Utilities
   collection: ^1.19.1

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../theme/dock_theme.dart';
+import '_border_effect_base.dart';
 
 /// 위젯 테두리 전체가 동시에 빛나는 글로우 이펙트.
 ///
@@ -45,70 +46,46 @@ class BorderGlowEffect extends StatefulWidget {
   });
 
   @override
-  State<BorderGlowEffect> createState() => BorderGlowEffectState();
+  State<BorderGlowEffect> createState() => _BorderGlowEffectState();
 }
 
-class BorderGlowEffectState extends State<BorderGlowEffect>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _ctrl;
-  late final Animation<double> _anim;
+class _BorderGlowEffectState extends State<BorderGlowEffect>
+    with SingleTickerProviderStateMixin, BorderEffectMixin<BorderGlowEffect> {
+  @override
+  Duration get effectDuration => widget.duration;
 
   @override
-  void initState() {
-    super.initState();
-    _ctrl = AnimationController(duration: widget.duration, vsync: this);
-    _anim = CurvedAnimation(parent: _ctrl, curve: Curves.easeOut);
-    widget.controller._attach(this);
-  }
+  Curve get effectCurve => Curves.easeOut;
+
+  @override
+  void onAttach() => widget.controller._attach(playEffect);
+
+  @override
+  void onDetach() => widget.controller._detach();
 
   @override
   void didUpdateWidget(BorderGlowEffect oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.controller != widget.controller) {
-      oldWidget.controller._detach();
-      widget.controller._attach(this);
+      handleControllerChange(true);
     }
     if (oldWidget.duration != widget.duration) {
-      _ctrl.duration = widget.duration;
+      handleDurationChange();
     }
   }
-
-  @override
-  void dispose() {
-    widget.controller._detach();
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  void trigger() => _ctrl.forward(from: 0);
 
   @override
   Widget build(BuildContext context) {
     final color = widget.color ?? DockTheme.of(context).colorScheme.accent;
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        widget.child,
-        Positioned.fill(
-          child: IgnorePointer(
-            child: AnimatedBuilder(
-              animation: _anim,
-              builder: (context, _) {
-                final v = _anim.value;
-                if (v == 0) return const SizedBox.shrink();
-                return CustomPaint(
-                  painter: _BorderGlowPainter(
-                    progress: v,
-                    color: color,
-                    borderRadius: widget.borderRadius,
-                    intensity: widget.intensity,
-                  ),
-                );
-              },
-            ),
-          ),
-        ),
-      ],
+    return BorderEffectScaffold(
+      animation: effectAnim,
+      painterBuilder: (v) => _BorderGlowPainter(
+        progress: v,
+        color: color,
+        borderRadius: widget.borderRadius,
+        intensity: widget.intensity,
+      ),
+      child: widget.child,
     );
   }
 }
@@ -117,13 +94,13 @@ class BorderGlowEffectState extends State<BorderGlowEffect>
 ///
 /// [trigger]를 호출하면 연결된 [BorderGlowEffect]의 애니메이션이 재생된다.
 class BorderGlowController {
-  BorderGlowEffectState? _state;
+  VoidCallback? _trigger;
 
-  void _attach(BorderGlowEffectState state) => _state = state;
-  void _detach() => _state = null;
+  void _attach(VoidCallback trigger) => _trigger = trigger;
+  void _detach() => _trigger = null;
 
   /// 글로우 이펙트를 처음부터 재생.
-  void trigger() => _state?.trigger();
+  void trigger() => _trigger?.call();
 }
 
 /// 테두리 전체가 동시에 빛나는 글로우 페인터.
@@ -143,6 +120,18 @@ class _BorderGlowPainter extends CustomPainter {
 
   /// 블러 글로우 확산 반경
   static const double _glowBlurRadius = 5.0;
+
+  /// 외곽 글로우 MaskFilter 블러 반경.
+  static const double _outerGlowBlur = 6.0;
+
+  /// 코너 하이라이트 MaskFilter 블러 반경.
+  static const double _cornerBlur = 3.0;
+
+  /// 코너 원 반경.
+  static const double _cornerTipRadius = 2.0;
+
+  /// RRect 1px 인셋 (테두리가 클리핑되지 않도록).
+  static const double _rrectInset = 1.0;
 
   /// 페이드인 종료 시점
   static const double _fadeInEnd = 0.25;
@@ -179,7 +168,7 @@ class _BorderGlowPainter extends CustomPainter {
     if (alpha <= 0) return;
 
     final rrect = RRect.fromRectAndRadius(
-      Rect.fromLTWH(1, 1, size.width - 2, size.height - 2),
+      Rect.fromLTWH(_rrectInset, _rrectInset, size.width - _rrectInset * 2, size.height - _rrectInset * 2),
       Radius.circular(borderRadius),
     );
 
@@ -190,7 +179,7 @@ class _BorderGlowPainter extends CustomPainter {
         ..style = PaintingStyle.stroke
         ..strokeWidth = _glowBlurRadius
         ..color = color.withValues(alpha: alpha * 0.3 * intensity)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, _outerGlowBlur),
     );
 
     // ── 코어 라인 (선명한 테두리) ──
@@ -206,16 +195,16 @@ class _BorderGlowPainter extends CustomPainter {
     final tipAlpha = alpha * 0.5 * intensity;
     final tipPaint = Paint()
       ..color = color.withValues(alpha: tipAlpha)
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3);
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, _cornerBlur);
     final r = borderRadius;
     final corners = [
-      Offset(r + 1, r + 1),
-      Offset(size.width - r - 1, r + 1),
-      Offset(r + 1, size.height - r - 1),
-      Offset(size.width - r - 1, size.height - r - 1),
+      Offset(r + _rrectInset, r + _rrectInset),
+      Offset(size.width - r - _rrectInset, r + _rrectInset),
+      Offset(r + _rrectInset, size.height - r - _rrectInset),
+      Offset(size.width - r - _rrectInset, size.height - r - _rrectInset),
     ];
     for (final corner in corners) {
-      canvas.drawCircle(corner, 2.0, tipPaint);
+      canvas.drawCircle(corner, _cornerTipRadius, tipPaint);
     }
   }
 

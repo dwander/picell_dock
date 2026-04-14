@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../theme/dock_theme.dart';
+import '_border_effect_base.dart';
 
 /// 위젯 테두리를 따라 빛이 한 바퀴 도는 스캔 이펙트.
 ///
@@ -41,69 +42,45 @@ class BorderScanEffect extends StatefulWidget {
   });
 
   @override
-  State<BorderScanEffect> createState() => BorderScanEffectState();
+  State<BorderScanEffect> createState() => _BorderScanEffectState();
 }
 
-class BorderScanEffectState extends State<BorderScanEffect>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _ctrl;
-  late final Animation<double> _anim;
+class _BorderScanEffectState extends State<BorderScanEffect>
+    with SingleTickerProviderStateMixin, BorderEffectMixin<BorderScanEffect> {
+  @override
+  Duration get effectDuration => widget.duration;
 
   @override
-  void initState() {
-    super.initState();
-    _ctrl = AnimationController(duration: widget.duration, vsync: this);
-    _anim = CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut);
-    widget.controller._attach(this);
-  }
+  Curve get effectCurve => Curves.easeInOut;
+
+  @override
+  void onAttach() => widget.controller._attach(playEffect);
+
+  @override
+  void onDetach() => widget.controller._detach();
 
   @override
   void didUpdateWidget(BorderScanEffect oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.controller != widget.controller) {
-      oldWidget.controller._detach();
-      widget.controller._attach(this);
+      handleControllerChange(true);
     }
     if (oldWidget.duration != widget.duration) {
-      _ctrl.duration = widget.duration;
+      handleDurationChange();
     }
   }
-
-  @override
-  void dispose() {
-    widget.controller._detach();
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  void trigger() => _ctrl.forward(from: 0);
 
   @override
   Widget build(BuildContext context) {
     final color = widget.color ?? DockTheme.of(context).colorScheme.accent;
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        widget.child,
-        Positioned.fill(
-          child: IgnorePointer(
-            child: AnimatedBuilder(
-              animation: _anim,
-              builder: (context, _) {
-                final v = _anim.value;
-                if (v == 0) return const SizedBox.shrink();
-                return CustomPaint(
-                  painter: _BorderScanPainter(
-                    progress: v,
-                    color: color,
-                    borderRadius: widget.borderRadius,
-                  ),
-                );
-              },
-            ),
-          ),
-        ),
-      ],
+    return BorderEffectScaffold(
+      animation: effectAnim,
+      painterBuilder: (v) => _BorderScanPainter(
+        progress: v,
+        color: color,
+        borderRadius: widget.borderRadius,
+      ),
+      child: widget.child,
     );
   }
 }
@@ -112,13 +89,13 @@ class BorderScanEffectState extends State<BorderScanEffect>
 ///
 /// [trigger]를 호출하면 연결된 [BorderScanEffect]의 애니메이션이 재생된다.
 class BorderScanController {
-  BorderScanEffectState? _state;
+  VoidCallback? _trigger;
 
-  void _attach(BorderScanEffectState state) => _state = state;
-  void _detach() => _state = null;
+  void _attach(VoidCallback trigger) => _trigger = trigger;
+  void _detach() => _trigger = null;
 
   /// 스캔 이펙트를 처음부터 재생.
-  void trigger() => _state?.trigger();
+  void trigger() => _trigger?.call();
 }
 
 /// 테두리를 따라 빛이 한 바퀴 도는 스캔 페인터.
@@ -131,6 +108,18 @@ class _BorderScanPainter extends CustomPainter {
   static const double _strokeWidth = 2.0;
   static const int _steps = 30;
 
+  /// RRect 1px 인셋 (테두리가 클리핑되지 않도록).
+  static const double _rrectInset = 1.0;
+
+  /// 스캔 헤드 외곽 원 반경.
+  static const double _scanHeadOuterRadius = 3.5;
+
+  /// 스캔 헤드 코어 원 반경.
+  static const double _scanHeadCoreRadius = 1.5;
+
+  /// 스캔 헤드 글로우 MaskFilter 블러 반경.
+  static const double _scanHeadBlur = 4.0;
+
   const _BorderScanPainter({
     required this.progress,
     required this.color,
@@ -142,7 +131,7 @@ class _BorderScanPainter extends CustomPainter {
     if (progress <= 0) return;
 
     final rrect = RRect.fromRectAndRadius(
-      Rect.fromLTWH(1, 1, size.width - 2, size.height - 2),
+      Rect.fromLTWH(_rrectInset, _rrectInset, size.width - _rrectInset * 2, size.height - _rrectInset * 2),
       Radius.circular(borderRadius),
     );
     final path = Path()..addRRect(rrect);
@@ -188,14 +177,14 @@ class _BorderScanPainter extends CustomPainter {
     if (headTangent != null) {
       canvas.drawCircle(
         headTangent.position,
-        3.5,
+        _scanHeadOuterRadius,
         Paint()
           ..color = color.withValues(alpha: globalAlpha * 0.6)
-          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4),
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, _scanHeadBlur),
       );
       canvas.drawCircle(
         headTangent.position,
-        1.5,
+        _scanHeadCoreRadius,
         Paint()..color = color.withValues(alpha: globalAlpha),
       );
     }

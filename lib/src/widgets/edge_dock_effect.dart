@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../models/dock_group.dart';
 import '../theme/dock_theme.dart';
+import '_border_effect_base.dart';
 
 /// 엣지 패널 전환 시 도킹 방향 테두리에서 펄스 글로우가 나타나는 이펙트.
 ///
@@ -42,88 +43,66 @@ class EdgeDockEffect extends StatefulWidget {
   });
 
   @override
-  State<EdgeDockEffect> createState() => EdgeDockEffectState();
+  State<EdgeDockEffect> createState() => _EdgeDockEffectState();
 }
 
-class EdgeDockEffectState extends State<EdgeDockEffect>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _ctrl;
-  late final CurvedAnimation _anim;
-
+class _EdgeDockEffectState extends State<EdgeDockEffect>
+    with SingleTickerProviderStateMixin, BorderEffectMixin<EdgeDockEffect> {
   ViewportEdge _edge = ViewportEdge.left;
 
   @override
-  void initState() {
-    super.initState();
-    _ctrl = AnimationController(duration: widget.duration, vsync: this);
-    _anim = CurvedAnimation(parent: _ctrl, curve: Curves.easeOut);
-    widget.controller._attach(this);
+  Duration get effectDuration => widget.duration;
+
+  @override
+  Curve get effectCurve => Curves.easeOut;
+
+  @override
+  void onAttach() => widget.controller._attach(_triggerWithEdge);
+
+  @override
+  void onDetach() => widget.controller._detach();
+
+  void _triggerWithEdge(ViewportEdge edge) {
+    _edge = edge;
+    playEffect();
   }
 
   @override
   void didUpdateWidget(EdgeDockEffect oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.controller != widget.controller) {
-      oldWidget.controller._detach();
-      widget.controller._attach(this);
+      handleControllerChange(true);
     }
     if (oldWidget.duration != widget.duration) {
-      _ctrl.duration = widget.duration;
+      handleDurationChange();
     }
-  }
-
-  @override
-  void dispose() {
-    widget.controller._detach();
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  void trigger(ViewportEdge edge) {
-    _edge = edge;
-    _ctrl.forward(from: 0);
   }
 
   @override
   Widget build(BuildContext context) {
     final color = widget.color ?? DockTheme.of(context).colorScheme.accent;
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        widget.child,
-        Positioned.fill(
-          child: IgnorePointer(
-            child: AnimatedBuilder(
-              animation: _anim,
-              builder: (context, _) {
-                final v = _anim.value;
-                if (v == 0) return const SizedBox.shrink();
-                return CustomPaint(
-                  painter: _EdgeDockPainter(
-                    progress: v,
-                    color: color,
-                    edge: _edge,
-                    borderRadius: widget.borderRadius,
-                  ),
-                );
-              },
-            ),
-          ),
-        ),
-      ],
+    return BorderEffectScaffold(
+      animation: effectAnim,
+      painterBuilder: (v) => _EdgeDockPainter(
+        progress: v,
+        color: color,
+        edge: _edge,
+        borderRadius: widget.borderRadius,
+      ),
+      child: widget.child,
     );
   }
 }
 
 /// [EdgeDockEffect] 외부 제어 컨트롤러.
 class EdgeDockEffectController {
-  EdgeDockEffectState? _state;
+  void Function(ViewportEdge)? _trigger;
 
-  void _attach(EdgeDockEffectState state) => _state = state;
-  void _detach() => _state = null;
+  void _attach(void Function(ViewportEdge) trigger) => _trigger = trigger;
+  void _detach() => _trigger = null;
 
   /// 지정한 엣지 방향에서 글로우 펄스 재생.
-  void trigger(ViewportEdge edge) => _state?.trigger(edge);
+  void trigger(ViewportEdge edge) => _trigger?.call(edge);
 }
 
 /// 도킹 방향 테두리에서 중앙 → 상하로 퍼지며 밝아졌다 사라지는 페인터.
@@ -144,6 +123,18 @@ class _EdgeDockPainter extends CustomPainter {
   /// 블러 글로우 확산 반경
   static const double _glowRadius = 6.0;
 
+  /// 글로우 MaskFilter 블러 반경.
+  static const double _glowBlur = 5.0;
+
+  /// 끝 하이라이트 MaskFilter 블러 반경.
+  static const double _tipBlur = 3.0;
+
+  /// 끝 하이라이트 최대 원 반경.
+  static const double _tipMaxRadius = 3.0;
+
+  /// 엣지 기준 X 좌표 인셋 (테두리 안쪽 1px).
+  static const double _edgeInset = 1.0;
+
   /// 확장 완료 시점
   static const double _expandEnd = 0.35;
 
@@ -163,7 +154,7 @@ class _EdgeDockPainter extends CustomPainter {
 
     // ── 엣지 방향 좌표 ──
     final isLeft = edge == ViewportEdge.left;
-    final x = isLeft ? 1.0 : size.width - 1.0;
+    final x = isLeft ? _edgeInset : size.width - _edgeInset;
     final centerY = size.height / 2;
 
     // ── 단계별 파라미터 ──
@@ -203,7 +194,7 @@ class _EdgeDockPainter extends CustomPainter {
       ..color = color.withValues(alpha: alpha * 0.35)
       ..strokeWidth = _glowRadius
       ..strokeCap = StrokeCap.round
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5);
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, _glowBlur);
     canvas.drawLine(Offset(x, yTop), Offset(x, yBottom), glowPaint);
 
     // ── 메인 라인 (선명한 코어) ──
@@ -233,8 +224,8 @@ class _EdgeDockPainter extends CustomPainter {
     final tipAlpha = alpha * 0.5;
     final tipPaint = Paint()
       ..color = color.withValues(alpha: tipAlpha)
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3);
-    final tipRadius = math.min(3.0, extent * 0.15);
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, _tipBlur);
+    final tipRadius = math.min(_tipMaxRadius, extent * 0.15);
     canvas.drawCircle(Offset(x, yTop), tipRadius, tipPaint);
     canvas.drawCircle(Offset(x, yBottom), tipRadius, tipPaint);
   }
