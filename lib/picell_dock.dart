@@ -2,6 +2,7 @@ library picell_dock;
 
 export 'src/config/dock_config.dart';
 export 'src/config/dock_settings.dart';
+export 'src/utils/dock_free_rect.dart';
 export 'src/dock/dock_drag_mixin.dart';
 export 'src/dock/dock_node_widget.dart';
 export 'src/dock/dock_overlay.dart';

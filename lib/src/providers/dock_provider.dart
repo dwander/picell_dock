@@ -10,6 +10,7 @@ import '../config/dock_config.dart';
 import '../models/dock_group.dart';
 import '../models/dock_node.dart';
 import '../services/dock_layout_service.dart';
+import '../utils/dock_free_rect.dart';
 import 'dock_node_tree.dart';
 import 'dock_settings_provider.dart';
 import 'dock_state.dart';
@@ -458,6 +459,8 @@ class DockNotifier extends Notifier<DockState> {
         viewerSize: size,
       ),
     );
+    // 최대화 상태 그룹은 새 뷰어 크기 기준으로 재배치
+    _recomputeMaximizedGroups();
   }
 
   /// 엣지 패널의 세로 Split에서 가장 큰 자식만 크기 변동을 흡수하도록
@@ -1011,6 +1014,208 @@ class DockNotifier extends Notifier<DockState> {
         focusedPanelId: state.focusedPanelId,
       ),
     );
+  }
+
+  /// 최대화/복귀 시 패널과의 간격 (px).
+  static const double _maximizeGap = 10.0;
+
+  /// 그룹을 엣지 패널이 점유하지 않는 최대 빈 영역으로 이동·확장.
+  ///
+  /// - 자기 자신(groupId)은 회피 대상에서 제외.
+  /// - 엣지 도킹 상태면 먼저 플로팅으로 전환 후 최대화.
+  /// - 이미 최대화 상태면 savedState를 덮어쓰지 않고 위치만 재계산.
+  void maximizeGroup(String groupId) {
+    var group = _findGroup(state.groups, groupId);
+    if (group == null) return;
+
+    // undock 전에 엣지 정보 캡처 — undock 후에는 dockedEdge가 null로 바뀜
+    final originalEdge = group.dockedEdge;
+
+    if (group.dockedEdge != null) {
+      undockFromViewportEdge(groupId);
+      group = _findGroup(state.groups, groupId)!;
+    }
+
+    final vs = state.viewerSize;
+
+    // 이미 최대화 상태면 기존 savedState 유지, 아니면 현재 절대 위치 저장
+    final saved = group.savedState ?? (
+      left: group.absoluteX(vs.width),
+      top: group.absoluteY(vs.height),
+      width: group.width,
+      height: group.height,
+      dockedEdge: originalEdge,
+    );
+
+    final edges = DockFreeRect.calcEdges(
+      state.displayRects,
+      vs,
+      excludeId: groupId,
+    );
+
+    final vw = vs.width;
+    final vh = vs.height;
+    final newLeft = edges.left + (edges.left > 0 ? _maximizeGap : 0.0);
+    final newTop = edges.top + (edges.top > 0 ? _maximizeGap : 0.0);
+    final newRight = edges.right - (edges.right < vw ? _maximizeGap : 0.0);
+    final newBottom = edges.bottom - (edges.bottom < vh ? _maximizeGap : 0.0);
+    final newWidth = newRight - newLeft;
+    final newHeight = newBottom - newTop;
+
+    if (newWidth <= 0 || newHeight <= 0) return;
+
+    final newRoot =
+        (group.height - newHeight).abs() > _positionEpsilon ||
+            (group.width - newWidth).abs() > _positionEpsilon
+        ? _fixSplitRatiosForResize(
+            group.root,
+            Size(group.width, group.height),
+            Size(newWidth, newHeight),
+          )
+        : group.root;
+
+    final maxZ = _maxZOrder();
+    _setState(
+      DockState(
+        groups: [
+          for (final g in state.groups)
+            if (g.id == groupId)
+              g.copyWith(
+                root: newRoot,
+                anchorX: AnchorX.left,
+                anchorY: AnchorY.top,
+                offsetX: newLeft,
+                offsetY: newTop,
+                width: newWidth,
+                height: newHeight,
+                zOrder: maxZ + 1,
+                savedState: saved,
+              )
+            else
+              g,
+        ],
+        viewerSize: vs,
+      ),
+    );
+  }
+
+  /// 최대화 이전 크기·위치로 복귀.
+  ///
+  /// 최대화 전 엣지 도킹 상태였고 해당 엣지가 현재 비어있으면 엣지 도킹으로 복귀.
+  void restoreGroup(String groupId) {
+    final group = _findGroup(state.groups, groupId);
+    if (group == null || group.savedState == null) return;
+
+    final saved = group.savedState!;
+    final vs = state.viewerSize;
+
+    // 엣지 복귀 조건: 저장된 엣지가 있고 현재 해당 엣지에 다른 패널이 없는 경우
+    if (saved.dockedEdge != null &&
+        state.edgePanel(saved.dockedEdge!) == null) {
+      // savedState 초기화 + 원래 width 복원 → dockToViewportEdge가 그 width 사용
+      _setState(
+        DockState(
+          groups: _updateGroup(
+            groupId,
+            (g) => g.copyWith(width: saved.width, clearSavedState: true),
+          ),
+          viewerSize: vs,
+        ),
+      );
+      dockToViewportEdge(groupId, saved.dockedEdge!);
+      return;
+    }
+
+    // 일반 위치 복귀 (플로팅이었거나 해당 엣지에 다른 패널이 있는 경우)
+    final newRoot =
+        (group.height - saved.height).abs() > _positionEpsilon ||
+            (group.width - saved.width).abs() > _positionEpsilon
+        ? _fixSplitRatiosForResize(
+            group.root,
+            Size(group.width, group.height),
+            Size(saved.width, saved.height),
+          )
+        : group.root;
+
+    _setState(
+      DockState(
+        groups: _updateGroup(
+          groupId,
+          (g) => _clampToViewport(
+            g.copyWith(
+              root: newRoot,
+              anchorX: AnchorX.left,
+              anchorY: AnchorY.top,
+              offsetX: saved.left,
+              offsetY: saved.top,
+              width: saved.width,
+              height: saved.height,
+              clearSavedState: true,
+            ),
+            vs,
+          ),
+        ),
+        viewerSize: vs,
+      ),
+    );
+  }
+
+  /// 최대화 상태인 그룹을 새 뷰어 크기에 맞게 위치·크기 재계산.
+  ///
+  /// [updateViewerSize] 이후 호출.
+  void _recomputeMaximizedGroups() {
+    final maximized = state.groups.where((g) => g.savedState != null).toList();
+    if (maximized.isEmpty) return;
+
+    final vs = state.viewerSize;
+    var groups = state.groups;
+
+    for (final group in maximized) {
+      final otherRects = Map.fromEntries(
+        state.displayRects.entries.where((e) => e.key != group.id),
+      );
+      final edges = DockFreeRect.calcEdges(otherRects, vs);
+      final vw = vs.width;
+      final vh = vs.height;
+      final newLeft = edges.left + (edges.left > 0 ? _maximizeGap : 0.0);
+      final newTop = edges.top + (edges.top > 0 ? _maximizeGap : 0.0);
+      final newRight = edges.right - (edges.right < vw ? _maximizeGap : 0.0);
+      final newBottom = edges.bottom - (edges.bottom < vh ? _maximizeGap : 0.0);
+      final newWidth = newRight - newLeft;
+      final newHeight = newBottom - newTop;
+
+      if (newWidth <= 0 || newHeight <= 0) continue;
+
+      final newRoot =
+          (group.height - newHeight).abs() > _positionEpsilon ||
+              (group.width - newWidth).abs() > _positionEpsilon
+          ? _fixSplitRatiosForResize(
+              group.root,
+              Size(group.width, group.height),
+              Size(newWidth, newHeight),
+            )
+          : group.root;
+
+      groups = [
+        for (final g in groups)
+          if (g.id == group.id)
+            g.copyWith(
+              root: newRoot,
+              anchorX: AnchorX.left,
+              anchorY: AnchorY.top,
+              offsetX: newLeft,
+              offsetY: newTop,
+              width: newWidth,
+              height: newHeight,
+            )
+          else
+            g,
+      ];
+    }
+
+    if (!identical(groups, state.groups)) {
+      _setState(DockState(groups: groups, viewerSize: vs));
+    }
   }
 
   /// 보더 스캔 대기 목록에서 특정 그룹을 제거.

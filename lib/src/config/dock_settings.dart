@@ -33,12 +33,19 @@ class DockSettings {
   /// 초기 포커스 패널 ID (저장 레이아웃 미존재 시).
   final String? initialFocusedPanelId;
 
+  /// 최대화 버튼을 표시할 패널 ID 집합.
+  ///
+  /// 그룹의 최상위 노드(루트)에 이 집합에 속하는 패널이 하나라도 있으면
+  /// 탭바 우측에 최대화 버튼이 노출된다.
+  final Set<String> maximizablePanelIds;
+
   const DockSettings({
     this.allowAutoAvoidance = false,
     this.allowHorizontalPanelDock = true,
     this.defaultLayout,
     this.isHeaderless = _alwaysFalse,
     this.initialFocusedPanelId,
+    this.maximizablePanelIds = const {},
   });
 
   static bool _alwaysFalse(String _) => false;

@@ -46,6 +46,18 @@ class DockGroup extends Equatable {
   /// 헤더리스 프레임 — true이면 탭바 없이 콘텐츠만 표시.
   final bool headerless;
 
+  /// 최대화 이전 상태 저장 (복귀용).
+  ///
+  /// null이면 최대화 상태가 아님. 앱 재시작 시 초기화되므로 직렬화하지 않음.
+  /// [dockedEdge]는 최대화 전 엣지 도킹 상태였을 경우 복귀에 사용.
+  final ({
+    double left,
+    double top,
+    double width,
+    double height,
+    ViewportEdge? dockedEdge,
+  })? savedState;
+
   const DockGroup({
     required this.id,
     required this.root,
@@ -59,6 +71,7 @@ class DockGroup extends Equatable {
     this.dockedEdge,
     this.pinned = false,
     this.headerless = false,
+    this.savedState,
   });
 
   /// 앵커 좌표 → 절대 X 좌표 변환.
@@ -116,6 +129,7 @@ class DockGroup extends Equatable {
       dockedEdge: dockedEdge,
       pinned: pinned,
       headerless: headerless,
+      savedState: savedState,
     );
   }
 
@@ -190,6 +204,7 @@ class DockGroup extends Equatable {
   }
 
   /// [clearDockedEdge]를 true로 넘기면 dockedEdge를 null로 초기화.
+  /// [clearSavedState]를 true로 넘기면 savedState를 null로 초기화.
   DockGroup copyWith({
     DockNode? root,
     AnchorX? anchorX,
@@ -203,6 +218,14 @@ class DockGroup extends Equatable {
     bool clearDockedEdge = false,
     bool? pinned,
     bool? headerless,
+    ({
+      double left,
+      double top,
+      double width,
+      double height,
+      ViewportEdge? dockedEdge,
+    })? savedState,
+    bool clearSavedState = false,
   }) {
     return DockGroup(
       id: id,
@@ -217,6 +240,7 @@ class DockGroup extends Equatable {
       dockedEdge: clearDockedEdge ? null : (dockedEdge ?? this.dockedEdge),
       pinned: pinned ?? this.pinned,
       headerless: headerless ?? this.headerless,
+      savedState: clearSavedState ? null : (savedState ?? this.savedState),
     );
   }
 
@@ -266,6 +290,7 @@ class DockGroup extends Equatable {
     dockedEdge,
     pinned,
     headerless,
+    savedState,
   ];
 
   // ── 존 판정 ──

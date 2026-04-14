@@ -350,6 +350,25 @@ class _DraggableTabBarState extends ConsumerState<_DraggableTabBar>
         overlayEnabled && dc != null && panelLayout.isNotEmpty;
     final isDragging = _draggingTabIndex != null;
 
+    // 최대화/복귀 버튼: 탭 중 하나라도 maximizable 패널이면 표시.
+    // nodePath 무관하게 표시 — 스플릿 그룹에서도 해당 노드 헤더에 나타남.
+    final maximizablePanelIds = dc == null
+        ? const <String>{}
+        : ref.watch(
+            dockSettingsProvider.select((s) => s.maximizablePanelIds),
+          );
+    final showMaximize =
+        dc != null && widget.tabIds.any(maximizablePanelIds.contains);
+    final isMaximized = showMaximize &&
+        ref.watch(dockProvider.select(
+          (s) =>
+              s.groups
+                  .where((g) => g.id == dc.groupId)
+                  .firstOrNull
+                  ?.savedState !=
+              null,
+        ));
+
     return MouseRegion(
       onEnter: canShowOverlay ? (_) => _onHoverChanged(true) : null,
       onExit: canShowOverlay ? (_) => _onHoverChanged(false) : null,
@@ -443,7 +462,7 @@ class _DraggableTabBarState extends ConsumerState<_DraggableTabBar>
                       else
                         _tabSpacer(),
                     ],
-                    // 남은 공간: 드래그로 그룹 이동 + 접기 버튼
+                    // 남은 공간: 드래그로 그룹 이동 + 최대화/접기 버튼
                     Expanded(
                       child: GestureDetector(
                         onPanStart: dc == null ? null : _onGroupDragStart,
@@ -453,16 +472,35 @@ class _DraggableTabBarState extends ConsumerState<_DraggableTabBar>
                           cursor: SystemMouseCursors.grab,
                           child: Align(
                             alignment: Alignment.centerRight,
-                            // 접기 버튼 숨김 조건:
-                            // - 루트 노드(스플릿 아닌 단일 패널)에서는 엣지만 숨김
-                            // - 펼쳐진 패널이 자신뿐이면 접기 불가 (엣지/플로팅 공통)
-                            child: dc == null ||
-                                    (dockedEdge != null && widget.nodePath.isEmpty) ||
-                                    (!isCollapsed && isLastExpanded)
-                                ? const SizedBox.shrink()
-                                : Padding(
-                                    padding: const EdgeInsets.only(right: 4),
-                                    child: _HeaderActionButton(
+                            child: Padding(
+                              padding: const EdgeInsets.only(right: 4),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  // 최대화/복귀 토글 버튼
+                                  if (showMaximize)
+                                    _HeaderActionButton(
+                                      icon: isMaximized
+                                          ? PhosphorIconsRegular.arrowsIn
+                                          : PhosphorIconsRegular.arrowsOut,
+                                      tooltip: isMaximized ? '이전 크기로' : '최대화',
+                                      onPressed: () {
+                                        final notifier =
+                                            ref.read(dockProvider.notifier);
+                                        if (isMaximized) {
+                                          notifier.restoreGroup(dc.groupId);
+                                        } else {
+                                          notifier.maximizeGroup(dc.groupId);
+                                        }
+                                      },
+                                    ),
+                                  // 접기 버튼 숨김 조건:
+                                  // - 루트 노드(스플릿 아닌 단일 패널)에서는 엣지만 숨김
+                                  // - 펼쳐진 패널이 자신뿐이면 접기 불가 (엣지/플로팅 공통)
+                                  if (dc != null &&
+                                      !(dockedEdge != null && widget.nodePath.isEmpty) &&
+                                      !(!isCollapsed && isLastExpanded))
+                                    _HeaderActionButton(
                                       icon: isCollapsed
                                           ? PhosphorIconsRegular.caretDown
                                           : PhosphorIconsRegular.caretUp,
@@ -475,7 +513,9 @@ class _DraggableTabBarState extends ConsumerState<_DraggableTabBar>
                                             nodePath: widget.nodePath,
                                           ),
                                     ),
-                                  ),
+                                ],
+                              ),
+                            ),
                           ),
                         ),
                       ),
