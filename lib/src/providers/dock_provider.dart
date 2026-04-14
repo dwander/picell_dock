@@ -1519,7 +1519,19 @@ class DockNotifier extends Notifier<DockState> {
       _config.edgePanelMinSize,
       double.infinity,
     );
-    final updated = group.copyWith(width: clamped);
+
+    // 너비가 변경되면 내부 horizontal split에서 가장 큰 패널만 유동 리사이즈.
+    // 미호출 시 horizontal split 자식들이 비율 리사이즈됨.
+    final vh = state.viewerSize.height;
+    final root = (group.width - clamped).abs() > _positionEpsilon
+        ? _fixSplitRatiosForResize(
+            group.root,
+            Size(group.width, vh),
+            Size(clamped, vh),
+          )
+        : group.root;
+
+    final updated = group.copyWith(width: clamped, root: root);
 
     _setState(
       DockState(
