@@ -34,6 +34,9 @@ class DockNotifier extends Notifier<DockState> {
   /// key: groupId, value: 노드 경로 (빈 리스트 = 그룹 전체).
   final Map<String, List<int>> _scanPendingNodes = {};
 
+  /// 다음 저장에 포함할 썸네일 크기. setThumbnailSizeForSave()로 설정.
+  double? _lastThumbnailSize;
+
   /// 저장 디바운스 간격.
   static const Duration _saveDebounceDuration = Duration(milliseconds: 500);
 
@@ -237,14 +240,104 @@ class DockNotifier extends Notifier<DockState> {
   void _scheduleSave() {
     _saveTimer?.cancel();
     final viewportH = state.viewerSize.height;
+    final thumbSize = _lastThumbnailSize;
     _saveTimer = Timer(_saveDebounceDuration, () {
       _layoutService.saveLayout(
         state.groups,
         lastPanelAloneSizes: _lastPanelAloneSizes,
         viewportHeight: viewportH > 0 ? viewportH : null,
+        thumbnailSize: thumbSize,
       );
     });
   }
+
+  // ── 공개 API ────────────────────────────────────────────────────────────────
+
+  /// 외부에서 레이아웃 데이터를 직접 적용한다.
+  ///
+  /// 프리셋 불러오기 또는 레이아웃 초기화에 사용.
+  /// 적용 후 dock_layout.json에 즉시 저장 예약된다.
+  void applyLayoutData(DockLayoutData data) {
+    // _nextGroupId 갱신
+    final groupIdPattern = RegExp(r'^group_(\d+)$');
+    int maxId = -1;
+    for (final group in data.groups) {
+      final match = groupIdPattern.firstMatch(group.id);
+      if (match != null) {
+        final num = int.parse(match.group(1)!);
+        if (num > maxId) maxId = num;
+      }
+    }
+    if (maxId >= 0) _nextGroupId = maxId + 1;
+
+    _lastPanelAloneSizes.clear();
+    _lastPanelAloneSizes.addAll(data.lastPanelAloneSizes);
+
+    // savedViewportHeight 기반 Split 비율 보정
+    final savedVH = data.savedViewportHeight;
+    final currentVH = state.viewerSize.height;
+    final List<DockGroup> groups;
+    if (savedVH != null &&
+        currentVH > 0 &&
+        (savedVH - currentVH).abs() > _positionEpsilon) {
+      groups = [
+        for (final g in data.groups)
+          if (g.dockedEdge != null)
+            g.copyWith(
+              root: _fixSplitRatiosForResize(
+                g.root,
+                Size(g.width, savedVH),
+                Size(g.width, currentVH),
+              ),
+            )
+          else
+            g,
+      ];
+    } else {
+      groups = data.groups;
+    }
+
+    _setState(DockState(groups: groups, viewerSize: state.viewerSize));
+
+    if (state.viewerSize != Size.zero) {
+      _recomputeMaximizedGroups();
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (ref.mounted) {
+        _setState(DockState(
+          groups: state.groups,
+          viewerSize: state.viewerSize,
+          layoutSettled: true,
+        ));
+      }
+    });
+
+    _scheduleSave();
+  }
+
+  /// 다음 저장에 포함할 썸네일 크기를 설정한다. ThumbnailNotifier에서 호출.
+  void setThumbnailSizeForSave(double size) {
+    _lastThumbnailSize = size;
+  }
+
+  /// 즉시 dock_layout.json에 현재 상태를 저장한다.
+  ///
+  /// 프리셋 스냅샷 생성 전 호출하여 최신 상태가 파일에 반영되도록 보장.
+  Future<void> flushSave() async {
+    _saveTimer?.cancel();
+    await _layoutService.saveLayout(
+      state.groups,
+      lastPanelAloneSizes: _lastPanelAloneSizes,
+      viewportHeight:
+          state.viewerSize.height > 0 ? state.viewerSize.height : null,
+      thumbnailSize: _lastThumbnailSize,
+    );
+  }
+
+  /// _lastPanelAloneSizes 읽기 전용 노출. 프리셋 저장 시 참조용.
+  Map<String, Size> get lastPanelAloneSizes =>
+      Map.unmodifiable(_lastPanelAloneSizes);
 
   /// 패널 간 최소 간격.
   static const double _displayGap = 10.0;

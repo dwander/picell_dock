@@ -8,6 +8,7 @@ export 'src/dock/dock_node_widget.dart';
 export 'src/dock/dock_overlay.dart';
 export 'src/models/dock_group.dart';
 export 'src/models/dock_node.dart';
+export 'src/services/dock_layout_service.dart' show DockLayoutData;
 export 'src/providers/dock_node_tree.dart';
 export 'src/providers/dock_provider.dart';
 export 'src/providers/dock_state.dart';

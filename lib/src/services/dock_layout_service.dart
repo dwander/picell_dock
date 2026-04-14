@@ -18,10 +18,14 @@ class DockLayoutData {
   /// 재시작 시 엣지 패널 Split 비율을 현재 뷰포트에 맞게 재조정하는 데 사용.
   final double? savedViewportHeight;
 
+  /// 레이아웃과 함께 저장된 썸네일 크기. null이면 현재 설정 유지.
+  final double? thumbnailSize;
+
   const DockLayoutData({
     required this.groups,
     this.lastPanelAloneSizes = const {},
     this.savedViewportHeight,
+    this.thumbnailSize,
   });
 }
 
@@ -91,10 +95,13 @@ class DockLayoutService {
       final savedViewportHeight =
           (json['viewportHeight'] as num?)?.toDouble();
 
+      final thumbnailSize = (json['thumbnailSize'] as num?)?.toDouble();
+
       return DockLayoutData(
         groups: groups,
         lastPanelAloneSizes: sizes,
         savedViewportHeight: savedViewportHeight,
+        thumbnailSize: thumbnailSize,
       );
     } catch (e, st) {
       dev.log(
@@ -112,6 +119,7 @@ class DockLayoutService {
     List<DockGroup> groups, {
     Map<String, Size> lastPanelAloneSizes = const {},
     double? viewportHeight,
+    double? thumbnailSize,
   }) async {
     final path = await _getFilePath();
     final file = File(path);
@@ -138,6 +146,9 @@ class DockLayoutService {
     };
     if (viewportHeight != null) {
       existing['viewportHeight'] = viewportHeight;
+    }
+    if (thumbnailSize != null) {
+      existing['thumbnailSize'] = thumbnailSize;
     }
     existing['lastPanelAloneSizes'] = {
       for (final entry in lastPanelAloneSizes.entries)
