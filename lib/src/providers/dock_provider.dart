@@ -1867,11 +1867,17 @@ class DockNotifier extends Notifier<DockState> {
       sourceNodePath = [sourceFirst ? 0 : 1];
     }
 
-    // 엣지 패널 타겟: 위치/크기 유지, dockedEdge 보존
+    // 엣지 패널 타겟: 위치 유지, dockedEdge 보존
+    // horizontal dock은 너비가 확장되어야 원래 패널 크기를 보존 (vertical은
+    // 높이=viewport 고정이므로 유지).
     if (target.dockedEdge != null) {
+      final newWidth = axis == SplitAxis.horizontal
+          ? srcRect.width + tgtRect.width
+          : target.width;
       final mergedGroup = _clampToViewport(
         target.copyWith(
           root: mergedSplit,
+          width: newWidth,
           headerless: false,
         ),
         vs,
