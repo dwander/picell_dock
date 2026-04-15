@@ -1129,6 +1129,7 @@ class DockNotifier extends Notifier<DockState> {
           vs,
         );
       }),
+      resizingGroupId: null,
     ));
     _onLayoutChanged();
   }
