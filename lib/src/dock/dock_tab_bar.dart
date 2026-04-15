@@ -170,6 +170,7 @@ class _DraggableTabBarState extends ConsumerState<_DraggableTabBar>
         cursorInStack: cursorInStack,
         ghostSize: ghostSize,
         excludeGroupId: dc.groupId,
+        excludeNodePath: widget.nodePath,
       );
     }
   }

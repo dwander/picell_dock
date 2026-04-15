@@ -96,6 +96,7 @@ class _HeaderlessFrameState extends ConsumerState<_HeaderlessFrame>
         cursorInStack: cursorInStack,
         ghostSize: ghostSize,
         excludeGroupId: dc.groupId,
+        excludeNodePath: widget.nodePath,
       );
       return;
     }

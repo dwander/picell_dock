@@ -716,6 +716,9 @@ class DockNotifier extends Notifier<DockState> {
     required Offset cursorInStack,
     required Size ghostSize,
     required String excludeGroupId,
+    /// 소스 노드 경로 — 지정하면 소스 그룹 내 다른 노드로도 도킹 감지.
+    /// null이면 소스 그룹 전체를 제외 (기존 동작).
+    List<int>? excludeNodePath,
   }) {
     // 고스트 시각 위치와 동일하게 rect 배치
     // (가로: 커서 중심, 세로: 커서에서 10px 아래가 상단)
@@ -732,11 +735,27 @@ class DockNotifier extends Notifier<DockState> {
       height: ghostSize.height,
     );
 
-    final targets = state.groups.where((g) => g.id != excludeGroupId).toList();
-    final preview = _detectDockTarget(virtualGroup, targets, cursorInStack);
+    // excludeNodePath가 있으면 소스 그룹을 포함 (같은 그룹 내 다른 노드로 도킹 가능)
+    // 없으면 소스 그룹 전체 제외 (기존 동작)
+    final targets = excludeNodePath != null
+        ? state.groups.toList()
+        : state.groups.where((g) => g.id != excludeGroupId).toList();
 
-    // 프리뷰만 갱신 (그룹 이동 없음)
-    _setStateLight(dockPreview: preview);
+    final preview = _detectDockTarget(
+      virtualGroup,
+      targets,
+      cursorInStack,
+      sourceGroupId: excludeNodePath != null ? excludeGroupId : null,
+      sourceNodePath: excludeNodePath,
+    );
+
+    // 프리뷰 갱신: 타겟이 있으면 설정, 없으면 명시적으로 초기화
+    // (_setStateLight(dockPreview: null)은 ?? 연산자로 이전값을 유지하므로 직접 초기화)
+    if (preview != null) {
+      _setStateLight(dockPreview: preview);
+    } else if (state.dockPreview != null) {
+      state = state.copyWith(dockPreview: null);
+    }
   }
 
   /// 외부에서 탭 도킹 수행 (고스트 드롭 등).
@@ -1431,8 +1450,13 @@ class DockNotifier extends Notifier<DockState> {
   DockPreview? _detectDockTarget(
     DockGroup dragging,
     List<DockGroup> groups,
-    Offset? cursorPosition,
-  ) {
+    Offset? cursorPosition, {
+    /// 소스 그룹 ID — 같은 그룹 내 다른 노드로의 도킹을 허용하기 위해 사용.
+    /// null이면 groups 리스트를 그대로 사용 (기존 동작).
+    String? sourceGroupId,
+    /// sourceGroupId 그룹 내에서 제외할 노드 경로 (소스 노드 자신).
+    List<int>? sourceNodePath,
+  }) {
     final dragRect = _groupRect(dragging);
     final anchor = cursorPosition ?? dragRect.topLeft;
     final allowH = ref.read(dockSettingsProvider).allowHorizontalPanelDock;
@@ -1449,6 +1473,10 @@ class DockNotifier extends Notifier<DockState> {
       if (targetRect.contains(anchor)) {
         final nodeRects = calcNodeRects(target.root, targetRect, const []);
         for (final nr in nodeRects) {
+          // 소스 그룹의 소스 노드는 제외 (같은 노드에 되돌리는 것은 no-op)
+          if (sourceGroupId != null &&
+              target.id == sourceGroupId &&
+              listEquals(nr.path, sourceNodePath ?? const [])) continue;
           if (!nr.rect.contains(anchor)) continue;
           final inner = nr.rect.deflate(_dockDetectDistance);
           // 노드 중심 → 탭 도킹
@@ -1474,7 +1502,10 @@ class DockNotifier extends Notifier<DockState> {
         continue;
       }
 
-      // 커서가 밖에 있으면 → 기존 rect 겹침 기반 엣지 도킹
+      // 커서가 밖에 있으면 → 소스 그룹은 rect 겹침 감지 제외
+      if (sourceGroupId != null && target.id == sourceGroupId) continue;
+
+      // 기존 rect 겹침 기반 엣지 도킹
       if (dragRect.intersect(targetRect).isEmpty) continue;
 
       final edges = <DockEdge, double>{
