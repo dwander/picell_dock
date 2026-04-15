@@ -29,6 +29,12 @@ class DockOverlay extends ConsumerWidget {
   /// 앱 위젯 트리에 `DockOverlay`를 단 하나만 배치하세요.
   static final stackKey = GlobalKey();
 
+  /// 드래그/리사이즈 중 이미지 뷰어 위에 까는 어두운 백드롭 불투명도.
+  static const double _backdropAlpha = 0.45;
+
+  /// 백드롭 페이드 인/아웃 지속 시간.
+  static const Duration _backdropDuration = Duration(milliseconds: 200);
+
   /// 활성(드래그/리사이즈 중) 그룹을 찾아 반환.
   static DockGroup? _getActiveGroup(DockState state) {
     final activeId = state.draggingGroupId ?? state.resizingGroupId;
@@ -55,6 +61,18 @@ class DockOverlay extends ConsumerWidget {
           children: [
             // 뷰어 컨테이너 (최하단)
             viewerBuilder(viewerSize),
+            // 드래그/리사이즈 중 스냅 도트 가시성을 높이기 위한 백드롭
+            Positioned.fill(
+              child: IgnorePointer(
+                child: AnimatedOpacity(
+                  opacity: dockState.isInteracting ? _backdropAlpha : 0.0,
+                  duration: _backdropDuration,
+                  child: ColoredBox(
+                    color: DockTheme.of(context).colorScheme.bg0,
+                  ),
+                ),
+              ),
+            ),
             // 스냅 그리드 + 앵커 구역 (드래그/리사이즈 중 뷰어 위에 오버레이)
             if (dockState.isInteracting)
               () {
