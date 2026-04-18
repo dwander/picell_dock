@@ -1011,6 +1011,39 @@ class DockNotifier extends Notifier<DockState> {
     _onLayoutChanged();
   }
 
+  /// [panelId]를 포함하는 DockTabbed를 찾아 해당 탭을 활성화한다.
+  /// 이미 활성 상태이거나 찾지 못하면 아무것도 하지 않는다.
+  void activatePanelById(String panelId) {
+    for (final group in state.groups) {
+      final result = _findPanelInNode(group.root, panelId, []);
+      if (result == null) continue;
+      final (nodePath, tabIndex) = result;
+      switchTab(group.id, nodePath: nodePath, tabIndex: tabIndex);
+      return;
+    }
+  }
+
+  /// 노드 트리를 재귀 탐색하여 [panelId]가 속한 (nodePath, tabIndex)를 반환.
+  (List<int>, int)? _findPanelInNode(
+    DockNode node,
+    String panelId,
+    List<int> path,
+  ) {
+    return switch (node) {
+      DockLeaf() => null,
+      DockTabbed(:final tabIds) => tabIds.contains(panelId)
+          ? (path, tabIds.indexOf(panelId))
+          : null,
+      DockSplit(:final children) => () {
+        for (var i = 0; i < children.length; i++) {
+          final result = _findPanelInNode(children[i], panelId, [...path, i]);
+          if (result != null) return result;
+        }
+        return null;
+      }(),
+    };
+  }
+
   /// 탭 그룹 내에서 탭 순서를 변경한다.
   void reorderTab(
     String groupId, {
