@@ -295,33 +295,13 @@ class _DraggableTabBarState extends ConsumerState<_DraggableTabBar>
     return SizedBox(width: _TabItem._tabSpacing);
   }
 
-  static Widget _activeTabSpacer({
-    required bool curveOnRight,
-    required Color tabColor,
-    required Color bgColor,
-  }) {
-    return SizedBox(
-      width: _TabItem._tabSpacing,
-      child: CustomPaint(
-        painter: _InverseCornerPainter(
-          curveOnRight: curveOnRight,
-          tabColor: tabColor,
-          bgColor: bgColor,
-          radius: _TabItem._activeTabRadius,
-        ),
-      ),
-    );
-  }
-
   /// 탭 목록 Row 조각 (for 루프 + GestureDetector + Transform + _TabItem).
   List<Widget> _buildTabList({
     required DockDragContext? dc,
     required bool isDragging,
     required bool isCollapsed,
-    required Color activeColor,
     required double overlayProgress,
     required TextTheme textTheme,
-    required DockColorScheme cs,
   }) {
     final isSingleTab =
         widget.tabIds.length <= 1 && widget.nodePath.isEmpty;
@@ -371,24 +351,9 @@ class _DraggableTabBarState extends ConsumerState<_DraggableTabBar>
         ),
       ));
 
-      // 탭 간 스페이서: 접힌 상태/드래그 중엔 역라운드 숨김
-      if (isDragging || isCollapsed) {
-        items.add(_tabSpacer());
-      } else if (i == widget.activeIndex) {
-        items.add(_activeTabSpacer(
-          curveOnRight: false,
-          tabColor: activeColor,
-          bgColor: cs.bg0,
-        ));
-      } else if (i == widget.activeIndex - 1) {
-        items.add(_activeTabSpacer(
-          curveOnRight: true,
-          tabColor: activeColor,
-          bgColor: cs.bg0,
-        ));
-      } else {
-        items.add(_tabSpacer());
-      }
+      // 탭 간 스페이서. 활성 탭의 플레어는 _TabItem이 스페이서 영역으로
+      // 오버플로우해 직접 그리므로, 스페이서는 간격만 담당한다.
+      items.add(_tabSpacer());
     }
     return items;
   }
@@ -471,7 +436,6 @@ class _DraggableTabBarState extends ConsumerState<_DraggableTabBar>
     required bool isLastExpanded,
     required bool showMaximize,
     required bool isMaximized,
-    required Color activeColor,
     required double overlayProgress,
     required TextTheme textTheme,
     required DockTheme dockTheme,
@@ -493,22 +457,15 @@ class _DraggableTabBarState extends ConsumerState<_DraggableTabBar>
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // 좌측 고정 여백: 접힌 상태/드래그 중엔 역라운드 숨김
-          (!isDragging && !isCollapsed && widget.activeIndex == 0)
-              ? _activeTabSpacer(
-                  curveOnRight: true,
-                  tabColor: activeColor,
-                  bgColor: cs.bg0,
-                )
-              : _tabSpacer(),
+          // 좌측 고정 여백. 첫 탭이 활성이면 그 좌하단 플레어가 이 여백으로
+          // 오버플로우되므로, 여백은 폭만 확보한다.
+          _tabSpacer(),
           ..._buildTabList(
             dc: dc,
             isDragging: isDragging,
             isCollapsed: isCollapsed,
-            activeColor: activeColor,
             overlayProgress: overlayProgress,
             textTheme: textTheme,
-            cs: cs,
           ),
           _buildHeaderRightArea(
             dc: dc,
@@ -574,7 +531,6 @@ class _DraggableTabBarState extends ConsumerState<_DraggableTabBar>
     final dc = widget.dragContext;
     final textTheme = Theme.of(context).textTheme;
     final dockTheme = DockTheme.of(context);
-    final cs = dockTheme.colorScheme;
     final isCollapsed = widget.collapsed;
     final overlayEnabled = dockTheme.displaySettings.showHeaderOverlay;
 
@@ -637,11 +593,6 @@ class _DraggableTabBarState extends ConsumerState<_DraggableTabBar>
             builder: (context, _) {
               final progress =
                   canShowOverlay ? overlayAnimation.value : 0.0;
-              final activeColor = Color.lerp(
-                cs.panelBackground,
-                cs.headerOverlay,
-                progress,
-              )!;
               return _buildHeader(
                 context,
                 dc: dc,
@@ -650,7 +601,6 @@ class _DraggableTabBarState extends ConsumerState<_DraggableTabBar>
                 isLastExpanded: isLastExpanded,
                 showMaximize: showMaximize,
                 isMaximized: isMaximized,
-                activeColor: activeColor,
                 overlayProgress: progress,
                 textTheme: textTheme,
                 dockTheme: dockTheme,

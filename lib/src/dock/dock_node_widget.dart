@@ -7,7 +7,6 @@ import '../providers/dock_node_tree.dart';
 import '../providers/dock_provider.dart';
 import '../providers/dock_settings_provider.dart';
 import '../config/dock_panel_delegate.dart';
-import '../theme/dock_color_scheme.dart';
 import '../theme/dock_theme.dart';
 import 'dock_drag_mixin.dart';
 
@@ -456,64 +455,70 @@ class _TabItem extends StatelessWidget {
       overlayProgress,
     )!;
 
-    // 접힌 상태: 활성 탭은 상하 모두 둥근 모서리
+    final textWidget = Text(
+      label,
+      style: textTheme.labelSmall?.copyWith(
+        color: isActive ? cs.textSecondary : cs.textMuted,
+      ),
+      overflow: TextOverflow.ellipsis,
+    );
+
+    // 활성 탭(펼침 + 리오더 중 아님): 본체 + 하단 플레어를 단일 path로 그린다.
+    // 플레어는 좌우 스페이서 영역으로 _activeTabRadius만큼 오버플로우되어, 본체
+    // 세로변이 오목 곡선으로 매끄럽게 이어진다(별도 코너 도형이 없어 이음새 없음).
+    if (isActive && !collapsed && !isReordering) {
+      return CustomPaint(
+        painter: _ActiveTabPainter(color: activeColor, radius: _activeTabRadius),
+        child: Center(
+          widthFactor: 1.0,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: textWidget,
+          ),
+        ),
+      );
+    }
+
+    // 비활성/접힘/리오더 중: 단순 사각형 (접힘 시 상하 둥근 모서리).
     final BorderRadius? borderRadius;
+    final Color? bgColor;
     if (!isActive) {
       borderRadius = null;
+      bgColor = null;
     } else if (collapsed) {
       borderRadius = BorderRadius.circular(_activeTabRadius);
+      bgColor = cs.bg0;
     } else {
+      // 리오더 중 활성 탭: 상단만 둥근 사각형 (플레어 숨김)
       borderRadius = const BorderRadius.only(
         topLeft: Radius.circular(_activeTabRadius),
         topRight: Radius.circular(_activeTabRadius),
       );
-    }
-
-    // 접힌 상태: bg0으로 그룹 배경(panelBackground)과 구분
-    final Color? bgColor;
-    if (!isActive) {
-      bgColor = null;
-    } else if (collapsed) {
-      bgColor = cs.bg0;
-    } else {
       bgColor = activeColor;
     }
 
     final tab = Container(
       padding: const EdgeInsets.symmetric(horizontal: 12),
-      decoration: BoxDecoration(
-        color: bgColor,
-        borderRadius: borderRadius,
-      ),
+      decoration: BoxDecoration(color: bgColor, borderRadius: borderRadius),
       alignment: Alignment.center,
-      child: Text(
-        label,
-        style: textTheme.labelSmall?.copyWith(
-          color: isActive ? cs.textSecondary : cs.textMuted,
-        ),
-        overflow: TextOverflow.ellipsis,
-      ),
+      child: textWidget,
     );
 
     return Opacity(opacity: isReordering ? 0.5 : 1.0, child: tab);
   }
 }
 
-/// 활성 탭 옆 역라운드 코너를 그리는 페인터.
+/// 활성 탭 배경을 **단일 path**로 그리는 페인터.
 ///
-/// 하단 구분선이 곡선을 따라 자연스럽게 이어진다.
-class _InverseCornerPainter extends CustomPainter {
-  final bool curveOnRight;
-  final Color tabColor;
-  final Color bgColor;
+/// 윗 모서리는 볼록, 아랫 양끝은 오목 플레어로 콘텐츠 면을 향해 벌어진다.
+/// 본체는 `[0, size.width]` 폭이고, 플레어는 좌우로 [radius]만큼 **바깥(좌우
+/// 스페이서 영역)으로 오버플로우**되어 그려진다. 본체 세로변이 곡선으로 매끄럽게
+/// 이어져, 본체와 별도의 코너 도형 사이에 생기던 이음새가 없다.
+class _ActiveTabPainter extends CustomPainter {
+  final Color color;
   final double radius;
 
-  const _InverseCornerPainter({
-    required this.curveOnRight,
-    required this.tabColor,
-    required this.bgColor,
-    required this.radius,
-  });
+  const _ActiveTabPainter({required this.color, required this.radius});
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -521,44 +526,26 @@ class _InverseCornerPainter extends CustomPainter {
     final h = size.height;
     final r = radius;
 
-    // 원이 할당 영역 밖으로 넘치지 않도록 클리핑
-    canvas.clipRect(Rect.fromLTWH(0, 0, w, h));
+    final path = Path()
+      ..moveTo(0, r)
+      // 좌상단 볼록
+      ..arcToPoint(Offset(r, 0), radius: Radius.circular(r))
+      ..lineTo(w - r, 0)
+      // 우상단 볼록
+      ..arcToPoint(Offset(w, r), radius: Radius.circular(r))
+      ..lineTo(w, h - r)
+      // 우하단 오목 플레어 — 오른쪽 스페이서로 오버플로우
+      ..arcToPoint(Offset(w + r, h), radius: Radius.circular(r), clockwise: false)
+      ..lineTo(-r, h)
+      // 좌하단 오목 플레어 — 왼쪽 스페이서로 오버플로우
+      ..arcToPoint(Offset(0, h - r), radius: Radius.circular(r), clockwise: false)
+      ..close();
 
-    // 1) 전체를 bg0로 채움
-    canvas.drawRect(
-      Rect.fromLTWH(0, 0, w, h),
-      Paint()..color = bgColor,
-    );
-
-    // 2) 하단 코너에 탭 색상 채움 + bg0 원으로 역라운드
-    if (curveOnRight) {
-      canvas.drawRect(
-        Rect.fromLTWH(w - r, h - r, r, r),
-        Paint()..color = tabColor,
-      );
-      canvas.drawCircle(
-        Offset(w - r, h - r),
-        r,
-        Paint()..color = bgColor,
-      );
-    } else {
-      canvas.drawRect(
-        Rect.fromLTWH(0, h - r, r, r),
-        Paint()..color = tabColor,
-      );
-      canvas.drawCircle(
-        Offset(r, h - r),
-        r,
-        Paint()..color = bgColor,
-      );
-    }
+    canvas.drawPath(path, Paint()..color = color);
   }
 
   @override
-  bool shouldRepaint(_InverseCornerPainter oldDelegate) =>
-      curveOnRight != oldDelegate.curveOnRight ||
-      tabColor != oldDelegate.tabColor ||
-      bgColor != oldDelegate.bgColor ||
-      radius != oldDelegate.radius;
+  bool shouldRepaint(_ActiveTabPainter oldDelegate) =>
+      color != oldDelegate.color || radius != oldDelegate.radius;
 }
 
